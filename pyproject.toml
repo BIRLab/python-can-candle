@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-can-candle"
+description = ""
+authors = [
+  { name="Yu He", email="chinaheyu@outlook.com" },
+]
+readme = "README.md"
+requires-python = ">=3.6"
+license = {file = "LICENSE"}
+keywords = ["gs_usb", "can", "candleLight"]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/chinaheyu/python-can-candle"
+Issues = "https://github.com/chinaheyu/python-can-candle/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["candle"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "candle.__version__"}

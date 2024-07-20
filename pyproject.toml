@@ -4,19 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-can-candle"
-description = ""
+description = "CAN driver for Geschwister Schneider USB/CAN devices"
 authors = [
   { name="Yu He", email="chinaheyu@outlook.com" },
 ]
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 license = {file = "LICENSE"}
 keywords = ["gs_usb", "can", "candleLight"]
 dynamic = ["version"]
+dependencies = [
+  "python-can",
+  "pyusb"
+]
 
 [project.urls]
 Homepage = "https://github.com/chinaheyu/python-can-candle"
 Issues = "https://github.com/chinaheyu/python-can-candle/issues"
+
+[project.entry-points."can.interface"]
+candle = "candle.candle_bus:CandleBus"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -25,3 +32,10 @@ namespaces = false
 
 [tool.setuptools.dynamic]
 version = {attr = "candle.__version__"}
+
+[tool.mypy]
+packages = "candle"
+
+[[tool.mypy.overrides]]
+module = "usb.*"
+ignore_missing_imports = true

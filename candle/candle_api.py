@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from weakref import WeakSet
 import usb
 import usb.backend
@@ -326,7 +328,7 @@ class GSHostFrame:
         return frame
 
     @classmethod
-    def unpack(cls, frame: bytes, is_hardware_timestamp: bool) -> 'GSHostFrame':
+    def unpack(cls, frame: bytes, is_hardware_timestamp: bool) -> GSHostFrame:
         header = GSHostFrameHeader(*gs_host_frame_header_struct.unpack(frame[:gs_host_frame_header_struct.size]))
         data = frame[gs_host_frame_header_struct.size:gs_host_frame_header_struct.size + header.data_length]
         gs_host_frame = cls(header, data)
@@ -336,7 +338,8 @@ class GSHostFrame:
 
 
 class CandleChannel:
-    def __init__(self, usb_device: usb.core.Device, channel: int, endpoint_in: int, endpoint_out: int) -> None:
+    def __init__(self, parent: CandleInterface, usb_device: usb.core.Device, channel: int, endpoint_in: int, endpoint_out: int) -> None:
+        self._parent = parent
         self._usb_device = usb_device
         self._channel = channel
         self._endpoint_in = endpoint_in
@@ -629,7 +632,8 @@ class CandleChannel:
 
 
 class CandleInterface:
-    def __init__(self, usb_device: usb.core.Device, interface_number: int, endpoint_in: int, endpoint_out: int) -> None:
+    def __init__(self, parent: CandleDevice, usb_device: usb.core.Device, interface_number: int) -> None:
+        self._parent = parent
         self._usb_device = usb_device
 
         self._usb_device.ctrl_transfer(
@@ -654,8 +658,6 @@ class CandleInterface:
             )
         )
 
-        self._channels: list[CandleChannel] = [CandleChannel(self._usb_device, i, endpoint_in, endpoint_out) for i in range(self._device_configuration.icount + 1)]
-
     @property
     def software_version(self) -> int:
         return self._device_configuration.sw_version
@@ -665,17 +667,17 @@ class CandleInterface:
         return self._device_configuration.hw_version
 
     def __len__(self) -> int:
-        return len(self._channels)
+        return self._device_configuration.icount + 1
 
-    def __getitem__(self, channel_index: int) -> CandleChannel:
-        return self._channels[channel_index]
+    def __getitem__(self, channel: int, endpoint_in: int = 0x81, endpoint_out: int = 0x02) -> CandleChannel:
+        return CandleChannel(self, self._usb_device, channel, endpoint_in, endpoint_out)
 
 
 class CandleDevice:
     # Weak reference container for CandleDevice
-    devices_ref: WeakSet['CandleDevice'] = WeakSet()
+    devices_ref: WeakSet[CandleDevice] = WeakSet()
 
-    def __init__(self, usb_device: usb.core.Device, interface_number: int = 0, endpoint_in: int = 0x81, endpoint_out: int = 0x02):
+    def __init__(self, usb_device: usb.core.Device):
         self._usb_device = usb_device
 
         # Forward usb descriptions from usb device.
@@ -689,15 +691,6 @@ class CandleDevice:
         # https://github.com/ryedwards/gs_usb/commit/9ac2286d6265ff124353ca678093570ef2095348
         # self._usb_device.reset()
 
-        try:
-            if self._usb_device.is_kernel_driver_active(interface_number):
-                self._usb_device.detach_kernel_driver(interface_number)
-        except NotImplementedError:
-            pass
-
-        # Only single interface devices are supported currently.
-        self._interfaces: list[CandleInterface] = [CandleInterface(usb_device, interface_number, endpoint_in, endpoint_out)]
-
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CandleInterface):
             return False
@@ -707,16 +700,22 @@ class CandleDevice:
         return hash(self._usb_device)
 
     def __len__(self) -> int:
-        return len(self._interfaces)
+        return self._usb_device.get_active_configuration().bNumInterfaces
 
     def __getitem__(self, interface_number: int) -> CandleInterface:
-        return self._interfaces[interface_number]
+        try:
+            if self._usb_device.is_kernel_driver_active(interface_number):
+                self._usb_device.detach_kernel_driver(interface_number)
+        except NotImplementedError:
+            pass
+
+        return CandleInterface(self, self._usb_device, interface_number)
 
     def __str__(self) -> str:
         return f'{self.idVendor:04X}:{self.idProduct:04X} - {self.manufacturer} - {self.product} - {self.serial_number}'
 
     @classmethod
-    def scan(cls, vid: Optional[int] = None, pid: Optional[int] = None, manufacture: Optional[str] = None, product: Optional[str] = None, serial_number: Optional[str] = None) -> Generator['CandleDevice', None, None]:
+    def scan(cls, vid: Optional[int] = None, pid: Optional[int] = None, manufacture: Optional[str] = None, product: Optional[str] = None, serial_number: Optional[str] = None) -> Generator[CandleDevice, None, None]:
         trait: dict[str, int | str] = {}
         if vid is not None:
             trait['idVendor'] = vid

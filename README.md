@@ -16,7 +16,6 @@ pip install python-can-candle
 
 ### Using with python-can (recommended)
 
-
 This library implements the [plugin interface](https://python-can.readthedocs.io/en/stable/plugin-interface.html) in [python-can](https://pypi.org/project/python-can/), aiming to replace the [gs_usb](https://python-can.readthedocs.io/en/stable/interfaces/gs_usb.html) interface within it.
 
 ```python
@@ -25,7 +24,9 @@ from candle import CandleBus
 
 bus: CandleBus  # This line is added to provide type hints.
 
+# Create a CandleBus instance in the python-can API.
 with can.Bus(interface='candle', channel=0) as bus:
+
     # Create listener and notifier.
     print_listener = can.Printer()
     notifier = can.Notifier(bus, [print_listener])
@@ -47,7 +48,7 @@ with can.Bus(interface='candle', channel=0) as bus:
     notifier.stop()
 ```
 
-### candle-api
+### Using candle-api directly
 
 Using the API directly can be very cumbersome. However, we still provide a simple example for developers to refer to.
 
@@ -63,10 +64,20 @@ for i, device in enumerate(available_devices):
 device = available_devices[int(input('Select a device by index: '))]
 
 # Select a interface.
+# Only single interface devices are supported currently.
 interface = device[0]
 
 # Select a channel.
-channel = interface[int(input(f'Select a channel by index (total {len(interface)}): '))]
+for i in range(len(interface)):
+    print(f'{i}: channel {i}')
+channel = interface[int(input(f'Select a channel by index: '))]
+
+# Set bit timing.
+# channel.set_bit_timing(...)
+# channel.set_data_bit_timing(...)
+
+# Open the channel.
+channel.open(fd=channel.is_fd_supported)
 
 # Send a frame.
 channel.write(
@@ -85,6 +96,9 @@ channel.write(
 # Receive a frame.
 frame = channel.read()
 print(frame.data)
+
+# Close the channel.
+channel.close()
 ```
 
 ## Reference

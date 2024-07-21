@@ -67,7 +67,7 @@ with can.Bus(interface='candle', channel=0) as bus:
 Using the API directly can be very cumbersome. However, we still provide a simple example for developers to refer to.
 
 ```python
-from candle.candle_api import CandleDevice, GSHostFrame, GSHostFrameHeader, GSCANFlag
+from candle.candle_api import CandleDevice, GSHostFrame, GSHostFrameHeader, GSCANFlag, GSCANIDFlag
 
 # Scan available devices.
 available_devices = list(CandleDevice.scan())
@@ -93,7 +93,7 @@ channel = interface[int(input(f'Select a channel by index: '))]
 # Open the channel.
 channel.open(fd=channel.is_fd_supported)
 
-# Send a frame.
+# Send a normal frame.
 channel.write(
     GSHostFrame(
         header=GSHostFrameHeader(
@@ -104,6 +104,20 @@ channel.write(
             flags=GSCANFlag(0)
         ),
         data=bytes([i for i in range(8)])
+    )
+)
+
+# Send a can fd frame with extended id.
+channel.write(
+    GSHostFrame(
+        header=GSHostFrameHeader(
+            echo_id=0,
+            can_id=1 | GSCANIDFlag.EFF,
+            can_dlc=15,
+            channel=channel.index,
+            flags=GSCANFlag.FD | GSCANFlag.BRS | GSCANFlag.ESI
+        ),
+        data=bytes([i for i in range(64)])
     )
 )
 

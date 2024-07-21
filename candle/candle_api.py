@@ -198,6 +198,10 @@ class GSHostFrameHeader:
         self.can_dlc = DLC2LEN.index(value)
 
     @property
+    def is_rx(self) -> bool:
+        return self.echo_id == 0xFFFFFFFF
+
+    @property
     def is_fd(self) -> bool:
         return bool(self.flags & GSCANFlag.FD)
 

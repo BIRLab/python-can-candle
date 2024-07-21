@@ -134,7 +134,7 @@ class CandleBus(can.bus.BusABC):
             dlc=frame.header.data_length,   # https://github.com/hardbyte/python-can/issues/749
             data=frame.data,
             is_fd=frame.header.is_fd,
-            is_rx=frame.header.echo_id == 0xFFFFFFFF,
+            is_rx=frame.header.is_rx,
             bitrate_switch=frame.header.is_bitrate_switch,
             error_state_indicator=frame.header.is_error_state_indicator
         )

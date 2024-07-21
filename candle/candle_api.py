@@ -385,7 +385,7 @@ class CandleChannel:
         return bool(self._bt_const.feature & GSCANFeature.BERR_REPORTING)
 
     @property
-    def is_get_bit_error_counter_supported(self) -> bool:
+    def is_get_state_supported(self) -> bool:
         return bool(self._bt_const.feature & GSCANFeature.GET_STATE)
 
     @property

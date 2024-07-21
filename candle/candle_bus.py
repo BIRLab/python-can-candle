@@ -166,8 +166,7 @@ class CandleBus(can.bus.BusABC):
         super().shutdown()
 
     @property
-    def internal_state(self) -> GSDeviceState:
-        # Unlike can.bus.BusState, the internal status contains error counts for tx and rx.
+    def device_state(self) -> GSDeviceState:
         return self._channel.state
 
     def __getattr__(self, attr: str) -> Any:

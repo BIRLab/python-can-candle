@@ -168,7 +168,7 @@ class GSHostFrameHeader:
     can_id: int
     can_dlc: int
     channel: int
-    flags: int
+    flags: GSCANFlag
 
     @property
     def arbitration_id(self) -> int:

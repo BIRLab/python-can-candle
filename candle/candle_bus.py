@@ -1,5 +1,5 @@
 from typing import Optional, Any, TYPE_CHECKING
-from candle.candle_api import CandleDevice, CandleChannel, GSHostFrame, GSHostFrameHeader, GSDeviceState
+from candle.candle_api import CandleDevice, CandleChannel, GSHostFrame, GSHostFrameHeader, GSDeviceState, GSCANFlag
 import can
 import usb
 
@@ -145,7 +145,7 @@ class CandleBus(can.bus.BusABC):
             # PyUSB default timeout.
             timeout = 1
 
-        hfh = GSHostFrameHeader(0, msg.arbitration_id, 0, self._channel.index, 0)
+        hfh = GSHostFrameHeader(0, msg.arbitration_id, 0, self._channel.index, GSCANFlag(0))
 
         hfh.data_length = msg.dlc   # https://github.com/hardbyte/python-can/issues/749
 

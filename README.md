@@ -1,4 +1,12 @@
+<div align="center">
+
 # python-can-candle
+
+![PyPI - Version](https://img.shields.io/pypi/v/python-can-candle)
+![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fchinaheyu%2Fpython-can-candle%2Fmain%2Fpyproject.toml)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/chinaheyu/python-can-candle/publish-to-pypi.yml)
+
+</div>
 
 CAN driver for Geschwister Schneider USB/CAN devices.
 

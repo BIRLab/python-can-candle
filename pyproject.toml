@@ -42,3 +42,7 @@ packages = "candle"
 [[tool.mypy.overrides]]
 module = "usb.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "libusb.*"
+ignore_missing_imports = true

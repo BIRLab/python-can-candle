@@ -25,6 +25,9 @@ Issues = "https://github.com/chinaheyu/python-can-candle/issues"
 [project.entry-points."can.interface"]
 candle = "candle.candle_bus:CandleBus"
 
+[project.optional-dependencies]
+libusb = ["libusb"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["candle"]

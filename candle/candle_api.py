@@ -1,9 +1,22 @@
 from weakref import WeakSet
 import usb
+import usb.backend
 from enum import IntEnum, IntFlag
 from struct import Struct
 from dataclasses import dataclass, astuple
 from typing import Optional, Generator
+
+
+backend: Optional[usb.backend.IBackend] = None
+
+
+# Using libusb1 backend from libusb package.
+try:
+    from libusb._platform import DLL_PATH
+    from usb.backend.libusb1 import get_backend
+    backend = get_backend(find_library=lambda x: DLL_PATH)
+except ImportError:
+    pass
 
 
 def bit(x: int) -> int:
@@ -723,6 +736,7 @@ class CandleDevice:
         # Find and create device.
         for di in device_identifiers:
             udev = usb.core.find(
+                backend=backend,
                 idVendor=di.idVendor,
                 idProduct=di.idProduct,
                 custom_match=matcher

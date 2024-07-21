@@ -12,6 +12,12 @@ Support **multichannel** and **can fd**.
 pip install python-can-candle
 ```
 
+If your system does not have any usb backend installed, you can borrow a libusb1 backend from [libusb](https://pypi.org/project/libusb/).
+
+```shell
+pip install python-can-candle[libusb]
+```
+
 ## Example
 
 ### Using with python-can (recommended)

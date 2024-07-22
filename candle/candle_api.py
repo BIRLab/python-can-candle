@@ -613,6 +613,14 @@ class CandleChannel:
             )
         )
 
+    @property
+    def software_version(self) -> int:
+        return self._parent.software_version
+
+    @property
+    def hardware_version(self) -> int:
+        return self._parent.hardware_version
+
     def read(self, timeout_ms: Optional[int] = None) -> GSHostFrame:
         rx_size = gs_host_frame_header_struct.size
 

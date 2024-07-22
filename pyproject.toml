@@ -9,7 +9,7 @@ authors = [
   { name="Yu He", email="chinaheyu@outlook.com" },
 ]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.7"
 license = {file = "LICENSE"}
 keywords = ["gs_usb", "can", "candleLight"]
 dynamic = ["version"]
@@ -35,6 +35,9 @@ namespaces = false
 
 [tool.setuptools.dynamic]
 version = {attr = "candle.__version__"}
+
+[tool.setuptools.package-data]
+candle = ["py.typed"]
 
 [tool.mypy]
 packages = "candle"

@@ -1,4 +1,4 @@
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Optional, Any, TYPE_CHECKING, Tuple
 from candle.candle_api import CandleDevice, CandleChannel, GSHostFrame, GSHostFrameHeader, GSDeviceState, GSCANFlag
 import can
 import usb
@@ -115,8 +115,8 @@ class CandleBus(can.bus.BusABC):
         )
 
     def _recv_internal(
-            self, timeout: Optional[float]
-    ) -> tuple[Optional[can.Message], bool]:
+        self, timeout: Optional[float]
+    ) -> Tuple[Optional[can.Message], bool]:
         # Do not set timeout as None or zero here to avoid blocking.
         timeout_ms = round(timeout * 1000) if timeout else 1
 

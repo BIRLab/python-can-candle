@@ -635,7 +635,7 @@ class CandleChannel:
         if self.is_hardware_timestamp_supported:
             rx_size += 4
 
-        raw_frame = self._usb_device.read(self._endpoint_in, rx_size, timeout_ms)
+        raw_frame = bytes(self._usb_device.read(self._endpoint_in, rx_size, timeout_ms))
         return GSHostFrame.unpack(raw_frame, self.is_hardware_timestamp_supported)
 
     def write(self, host_frame: GSHostFrame, timeout_ms: Optional[int] = None) -> None:

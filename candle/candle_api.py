@@ -785,6 +785,10 @@ class CandleDevice:
                 custom_match=matcher
             )
             if udev is not None:
-                dev = CandleDevice(udev)
+                try:
+                    dev = CandleDevice(udev)
+                except ValueError:
+                    # A permission issue occurs when the device is occupied.
+                    continue
                 cls.devices_ref.add(dev)
                 yield dev

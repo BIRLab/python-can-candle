@@ -172,8 +172,13 @@ class CandleBus(can.bus.BusABC):
         return self._channel.state
 
     def __getattr__(self, attr: str) -> Any:
-        # Wrap attribute from CandleChannel.
-        if attr in {'close', 'open', 'read', 'write'}:
-            # Hide some internal method.
+        # Hide protected or private method.
+        if attr.startswith('_'):
             raise AttributeError(attr)
+
+        # Hide some internal channel method.
+        if attr in {'close', 'open', 'read', 'write'}:
+            raise AttributeError(attr)
+
+        # Wrap attribute from CandleChannel.
         return getattr(self._channel, attr)

@@ -174,7 +174,7 @@ class GSDeviceBTConstExtended(GSDeviceBTConst):
 @dataclass
 class GSDeviceMode:
     mode: int
-    flags: int
+    flags: GSCANMode
 
 
 @dataclass
@@ -314,10 +314,10 @@ class GSHostFrame:
     def timestamp(self) -> float:
         return self.timestamp_us / 1e6
 
-    def pack(self, is_fd_device: bool, is_quirk_device: bool) -> bytes:
+    def pack(self, is_quirk_device: bool) -> bytes:
         frame = gs_host_frame_header_struct.pack(*astuple(self.header))
 
-        if is_fd_device:
+        if self.header.is_fd:
             frame += self.data.ljust(64, b'\0')
         else:
             frame += self.data.ljust(8, b'\0')
@@ -371,6 +371,8 @@ class CandleChannel:
                     )
                 )
             )
+
+        self._flags: GSCANMode = GSCANMode.NORMAL
 
     @property
     def index(self) -> int:
@@ -504,12 +506,13 @@ class CandleChannel:
         if self.is_hardware_timestamp_supported:
             flags |= GSCANMode.HW_TIMESTAMP
 
+        self._flags = flags
         self._usb_device.ctrl_transfer(
             usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_INTERFACE,
             GSUsbRequest.MODE,
             self._channel,
             0,
-            gs_device_mode_struct.pack(*astuple(GSDeviceMode(GSDeviceModeControl.START, flags))),
+            gs_device_mode_struct.pack(*astuple(GSDeviceMode(GSDeviceModeControl.START, self._flags))),
             1000
         )
 
@@ -519,7 +522,7 @@ class CandleChannel:
             GSUsbRequest.MODE,
             self._channel,
             0,
-            gs_device_mode_struct.pack(*astuple(GSDeviceMode(GSDeviceModeControl.RESET, 0))),
+            gs_device_mode_struct.pack(*astuple(GSDeviceMode(GSDeviceModeControl.RESET, GSCANMode.NORMAL))),
             1000
         )
 
@@ -636,7 +639,12 @@ class CandleChannel:
         return GSHostFrame.unpack(raw_frame, self.is_hardware_timestamp_supported)
 
     def write(self, host_frame: GSHostFrame, timeout_ms: Optional[int] = None) -> None:
-        self._usb_device.write(self._endpoint_out, host_frame.pack(self.is_fd_supported, self.is_quirk), timeout_ms)
+
+        # If the device does not have CAN FD enabled, but somehow receives a CAN FD Frame, drop it.
+        if host_frame.header.is_fd and not self._flags & GSCANMode.FD:
+            return
+
+        self._usb_device.write(self._endpoint_out, host_frame.pack(self.is_quirk), timeout_ms)
 
 
 class CandleInterface:

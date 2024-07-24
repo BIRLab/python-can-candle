@@ -39,6 +39,8 @@ class CandleBus(can.bus.BusABC):
         set_bit_timing = CandleChannel.set_bit_timing
         set_data_bit_timing = CandleChannel.set_data_bit_timing
         termination: bool
+        software_version: int
+        hardware_version: int
 
     def __init__(self, channel: int, can_filters: Optional[can.typechecking.CanFilters] = None,
                  bitrate: int = 1000000, sample_point: float = 87.5,

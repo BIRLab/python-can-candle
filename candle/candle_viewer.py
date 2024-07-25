@@ -46,6 +46,7 @@ from candle.candle_api import (
 )
 from enum import Enum, auto
 from functools import partial
+from random import randrange
 
 
 class CandleManagerState(Enum):
@@ -234,6 +235,15 @@ class InputPanel(QWidget):
             else:
                 line_edit.setEnabled(False)
                 line_edit.setText('00')
+
+    @Slot()
+    def random(self) -> None:
+        for i in range(64):
+            row = i // 8
+            column = i % 8
+            line_edit: QLineEdit = cast(QLineEdit, self.grid_layout.itemAtPosition(row + 1, column + 1).widget())
+            if line_edit.isEnabled():
+                line_edit.setText(f'{randrange(0, 256):02X}')
 
     def data(self) -> bytes:
         data: List[int] = []
@@ -478,10 +488,13 @@ class MainWindow(QWidget):
         self.cycle_time_spin_box.setMinimum(1)
         self.cycle_time_spin_box.setMaximum(100000)
         self.cycle_time_spin_box.setEnabled(False)
+        self.random_data_button = QPushButton('Random Data')
+        self.random_data_button.setEnabled(False)
         vbox_layout2.addWidget(self.send_once_button)
         vbox_layout2.addWidget(self.send_repeat_button)
         vbox_layout2.addWidget(QLabel('Cycle Time'))
         vbox_layout2.addWidget(self.cycle_time_spin_box)
+        vbox_layout2.addWidget(self.random_data_button)
         vbox_layout2.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         hbox_layout3.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         hbox_layout3.addLayout(vbox_layout1)
@@ -518,6 +531,7 @@ class MainWindow(QWidget):
         self.send_timer.timeout.connect(self.send_message)
         self.send_repeat_button.toggled.connect(self.send_message_repeat)
         self.send_eff_checkbox.toggled.connect(self.handle_extended_id_checked)
+        self.random_data_button.clicked.connect(self.input_panel.random)
 
     def send_message_repeat(self, checked: bool) -> None:
         if checked:
@@ -574,6 +588,7 @@ class MainWindow(QWidget):
             self.send_once_button.setEnabled(False)
             self.send_repeat_button.setEnabled(False)
             self.cycle_time_spin_box.setEnabled(False)
+            self.random_data_button.setEnabled(False)
         if to_state == CandleManagerState.ChannelSelection:
             self.device_selector.setEnabled(True)
             self.channel_selector.setEnabled(True)
@@ -596,6 +611,7 @@ class MainWindow(QWidget):
             self.send_once_button.setEnabled(False)
             self.send_repeat_button.setEnabled(False)
             self.cycle_time_spin_box.setEnabled(False)
+            self.random_data_button.setEnabled(False)
             self.channel_selector.clear()
             self.channel_selector.addItems([str(i) for i in range(len(self.channel_manager.interface))])    # type: ignore[arg-type]
         if to_state == CandleManagerState.Configuration:
@@ -620,6 +636,7 @@ class MainWindow(QWidget):
             self.send_once_button.setEnabled(False)
             self.send_repeat_button.setEnabled(False)
             self.cycle_time_spin_box.setEnabled(False)
+            self.random_data_button.setEnabled(False)
             self.start_button.setChecked(False)
             self.fd_checkbox.setChecked(self.channel_manager.channel.is_fd_supported)
         if to_state == CandleManagerState.Running:
@@ -644,6 +661,7 @@ class MainWindow(QWidget):
             self.send_once_button.setEnabled(True)
             self.send_repeat_button.setEnabled(True)
             self.cycle_time_spin_box.setEnabled(True)
+            self.random_data_button.setEnabled(True)
             self.handle_send_fd_checked(self.send_fd_checkbox.isChecked())
             self.handle_extended_id_checked(self.send_eff_checkbox.isChecked())
 
@@ -684,7 +702,7 @@ class MainWindow(QWidget):
             data = message.data[i * 8:i * 8 + 8]
             if not data:
                 break
-            wrapped_data.append(' '.join(f'{j:02X}' for j in data))
+            wrapped_data.append(' '.join(f'{j:02X}' for j in data) + '\t' + ''.join(chr(j) if 32 < j < 127 else '.' for j in data))
         row_index = self.message_viewer.rowCount()
         self.message_viewer.insertRow(row_index)
         self.message_viewer.setItem(row_index, 0, QTableWidgetItem(str(message.timestamp)))

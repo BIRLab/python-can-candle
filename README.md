@@ -34,7 +34,7 @@ pip install python-can-candle[viewer]
 
 Once installed you can launch it via `candle_viewer` or `python -m candle.candle_viewer` and you will see the following window.
 
-![Candle Viewer](.\assets\viewer.png)
+![Candle Viewer](./assets/viewer.png)
 
 ## Example
 

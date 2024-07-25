@@ -26,6 +26,16 @@ If your system does not have any usb backend installed, you can borrow a libusb1
 pip install python-can-candle[libusb]
 ```
 
+We also provide a handy GUI tool, which you can install with the following command.
+
+```shell
+pip install python-can-candle[viewer]
+```
+
+Once installed you can launch it via `candle_viewer` or `python -m candle.candle_viewer` and you will see the following window.
+
+![Candle Viewer](.\assets\viewer.png)
+
 ## Example
 
 ### Using with python-can (recommended)

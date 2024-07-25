@@ -6,7 +6,8 @@ from PySide6.QtCore import (
     Signal,
     Slot,
     QObject,
-    QTimer
+    QTimer,
+    Qt
 )
 from PySide6.QtGui import QFocusEvent, QFont
 from PySide6.QtWidgets import (
@@ -203,7 +204,8 @@ class InputPanel(QWidget):
             for j in range(8):
                 line_edit = QLineEdit()
                 line_edit.setInputMask('hh')
-                line_edit.setFixedWidth(20)
+                line_edit.setFixedWidth(24)
+                line_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 line_edit.setText('00')
                 line_edit.mousePressEvent = partial(self.get_focus, line_edit=line_edit)    # type: ignore[method-assign]
                 if previous_line_edit:

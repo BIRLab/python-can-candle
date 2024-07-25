@@ -25,8 +25,12 @@ Issues = "https://github.com/chinaheyu/python-can-candle/issues"
 [project.entry-points."can.interface"]
 candle = "candle.candle_bus:CandleBus"
 
+[project.scripts]
+candle_viewer = "candle.candle_viewer:main"
+
 [project.optional-dependencies]
 libusb = ["libusb"]
+viewer = ["PySide6"]
 
 [tool.setuptools.packages.find]
 where = ["."]

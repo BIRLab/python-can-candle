@@ -147,7 +147,7 @@ class GSDeviceConfig:
 
 @dataclass
 class GSDeviceBTConst:
-    feature: int
+    feature: GSCANFeature
     fclk_can: int
     tseg1_min: int
     tseg1_max: int
@@ -309,6 +309,16 @@ class GSHostFrame:
         self.header = header
         self.data = data
         self.timestamp_us = timestamp_us
+
+    @property
+    def valid(self) -> bool:
+        if self.header.is_fd and self.header.can_dlc > 15:
+            return False
+        if not self.header.is_fd and self.header.can_dlc > 8:
+            return False
+        if len(self.data) < self.header.data_length:
+            return False
+        return True
 
     @property
     def timestamp(self) -> float:
@@ -642,6 +652,10 @@ class CandleChannel:
 
         # If the device does not have CAN FD enabled, but somehow receives a CAN FD Frame, drop it.
         if host_frame.header.is_fd and not self._flags & GSCANMode.FD:
+            return
+
+        # If the frame is not valid, drop it.
+        if not host_frame.valid:
             return
 
         self._usb_device.write(self._endpoint_out, host_frame.pack(self.is_quirk), timeout_ms)

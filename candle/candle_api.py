@@ -731,6 +731,9 @@ class CandleDevice:
         # https://github.com/ryedwards/gs_usb/commit/9ac2286d6265ff124353ca678093570ef2095348
         # self._usb_device.reset()
 
+    def __del__(self) -> None:
+        usb.util.dispose_resources(self._usb_device)
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CandleInterface):
             return False

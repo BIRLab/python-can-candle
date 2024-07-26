@@ -249,12 +249,13 @@ class InputPanel(QWidget):
 
     def data(self) -> bytes:
         data: List[int] = []
-        for i in range(64):
-            row = i // 8
-            column = i % 8
-            line_edit: QLineEdit = cast(QLineEdit, self.grid_layout.itemAtPosition(row + 1, column + 1).widget())
-            if line_edit.isEnabled():
-                data.append(int(line_edit.text(), 16))
+        if self.isEnabled():
+            for i in range(64):
+                row = i // 8
+                column = i % 8
+                line_edit: QLineEdit = cast(QLineEdit, self.grid_layout.itemAtPosition(row + 1, column + 1).widget())
+                if line_edit.isEnabled():
+                    data.append(int(line_edit.text(), 16))
         return bytes(data)
 
 
@@ -527,6 +528,7 @@ class MainWindow(QWidget):
         self.channel_manager.channelInfo.connect(self.bit_timing_dialog.update_channel_info)
         self.bit_timing_button.clicked.connect(self.bit_timing_dialog.exec)
         self.send_dlc_selector.currentIndexChanged.connect(self.input_panel.set_dlc)
+        self.send_rtr_checkbox.toggled.connect(self.handle_remote_frame_checked)
         self.send_once_button.clicked.connect(self.send_message)
         self.send_fd_checkbox.toggled.connect(self.handle_send_fd_checked)
         self.cycle_time_spin_box.valueChanged.connect(lambda v: self.send_timer.setInterval(v))
@@ -544,7 +546,7 @@ class MainWindow(QWidget):
     @Slot()
     def send_message(self) -> None:
         data = self.input_panel.data()
-        header = GSHostFrameHeader(0, self.send_id_spin_box.value(), DLC2LEN.index(len(data)), self.channel_manager.channel.index, GSCANFlag(0))
+        header = GSHostFrameHeader(0, self.send_id_spin_box.value(), self.send_dlc_selector.currentIndex(), self.channel_manager.channel.index, GSCANFlag(0))
         header.is_extended_id = self.send_eff_checkbox.isChecked()
         header.is_remote_frame = self.send_rtr_checkbox.isChecked()
         header.is_fd = self.send_fd_checkbox.isEnabled() and self.send_fd_checkbox.isChecked()
@@ -558,6 +560,13 @@ class MainWindow(QWidget):
             self.send_id_spin_box.setMaximum((1 << 29) - 1)
         else:
             self.send_id_spin_box.setMaximum((1 << 11) - 1)
+
+    @Slot(bool)
+    def handle_remote_frame_checked(self, checked: bool) -> None:
+        if checked:
+            self.input_panel.setEnabled(False)
+        else:
+            self.input_panel.setEnabled(True)
 
     @Slot(bool)
     def handle_send_fd_checked(self, checked: bool) -> None:
@@ -659,7 +668,7 @@ class MainWindow(QWidget):
             self.send_fd_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
             self.send_brs_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
             self.send_esi_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
-            self.input_panel.setEnabled(True)
+            self.input_panel.setEnabled(self.send_rtr_checkbox.isChecked())
             self.send_once_button.setEnabled(True)
             self.send_repeat_button.setEnabled(True)
             self.cycle_time_spin_box.setEnabled(True)
@@ -699,20 +708,26 @@ class MainWindow(QWidget):
             flags.append('BRS')
         if message.header.is_error_state_indicator:
             flags.append('ESI')
+
         wrapped_data = []
         for i in range(8):
             data = message.data[i * 8:i * 8 + 8]
             if not data:
                 break
-            wrapped_data.append(' '.join(f'{j:02X}' for j in data) + '\t' + ''.join(chr(j) if 32 < j < 127 else '.' for j in data))
+            wrapped_data.append(' '.join(f'{j:02X}' for j in data) + '\t' + ''.join(chr(j) if 31 < j < 127 else '.' for j in data))
+        wrapped_data_item = QTableWidgetItem('\n'.join(wrapped_data))
+        wrapped_data_font = QFont('Monospace')
+        wrapped_data_font.setStyleHint(QFont.StyleHint.TypeWriter)
+        wrapped_data_item.setFont(wrapped_data_font)
+
         row_index = self.message_viewer.rowCount()
         self.message_viewer.insertRow(row_index)
         self.message_viewer.setItem(row_index, 0, QTableWidgetItem(str(message.timestamp)))
         self.message_viewer.setItem(row_index, 1, QTableWidgetItem('Rx' if message.header.is_rx else 'Tx'))
         self.message_viewer.setItem(row_index, 2, QTableWidgetItem(' '.join(flags)))
-        self.message_viewer.setItem(row_index, 3, QTableWidgetItem(f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.can_id:03X}'))
+        self.message_viewer.setItem(row_index, 3, QTableWidgetItem(f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'))
         self.message_viewer.setItem(row_index, 4, QTableWidgetItem(str(message.header.data_length)))
-        self.message_viewer.setItem(row_index, 5, QTableWidgetItem(('\n'.join(wrapped_data))))
+        self.message_viewer.setItem(row_index, 5, wrapped_data_item)
         self.message_viewer.scrollToBottom()
 
     @Slot(str)

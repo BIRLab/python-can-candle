@@ -305,7 +305,7 @@ DLC2LEN: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 6
 
 
 class GSHostFrame:
-    def __init__(self, header: GSHostFrameHeader, data: bytes, timestamp_us: int = 0) -> None:
+    def __init__(self, header: GSHostFrameHeader, data: bytes = b'', timestamp_us: int = 0) -> None:
         self.header = header
         self.data = data
         self.timestamp_us = timestamp_us
@@ -316,7 +316,7 @@ class GSHostFrame:
             return False
         if not self.header.is_fd and self.header.can_dlc > 8:
             return False
-        if len(self.data) < self.header.data_length:
+        if not self.header.is_remote_frame and len(self.data) < self.header.data_length:
             return False
         return True
 
@@ -340,8 +340,11 @@ class GSHostFrame:
     @classmethod
     def unpack(cls, frame: bytes, is_hardware_timestamp: bool) -> GSHostFrame:
         header = GSHostFrameHeader(*gs_host_frame_header_struct.unpack(frame[:gs_host_frame_header_struct.size]))
-        data = frame[gs_host_frame_header_struct.size:gs_host_frame_header_struct.size + header.data_length]
-        gs_host_frame = cls(header, data)
+        if header.is_remote_frame:
+            gs_host_frame = cls(header)
+        else:
+            data = frame[gs_host_frame_header_struct.size:gs_host_frame_header_struct.size + header.data_length]
+            gs_host_frame = cls(header, data)
         if is_hardware_timestamp:
             gs_host_frame.timestamp_us = int.from_bytes(frame[-4:], 'little', signed=False)
         return gs_host_frame

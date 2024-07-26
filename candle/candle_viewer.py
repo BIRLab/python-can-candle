@@ -84,6 +84,11 @@ class CandleManager(QObject):
         self.interface: Optional[CandleInterface] = None
         self.channel: Optional[CandleChannel] = None
 
+        self.polling_timer = QTimer(self)
+        self.polling_timer.timeout.connect(self.polling)
+        self.polling_timer.setInterval(1)
+        self.polling_timer.start()
+
     @Slot()
     def scan(self) -> None:
         if self.state == CandleManagerState.Running:
@@ -179,22 +184,20 @@ class CandleManager(QObject):
 
     @Slot()
     def polling(self) -> None:
-        while not QThread.currentThread().isInterruptionRequested():
-            QApplication.processEvents()    # Avoid blocking GUI
-            if self.state == CandleManagerState.Running:
+        if self.state == CandleManagerState.Running:
+            try:
+                frame = self.channel.read(1)
+            except usb.core.USBTimeoutError:
+                pass
+            except usb.core.USBError as e:
                 try:
-                    frame = self.channel.read(1)
-                except usb.core.USBTimeoutError:
+                    self.channel.close()
+                except usb.core.USBError:
                     pass
-                except usb.core.USBError as e:
-                    try:
-                        self.channel.close()
-                    except usb.core.USBError:
-                        pass
-                    self.handle_exception(str(e))
-                else:
-                    if frame is not None:
-                        self.messageReceived.emit(frame)
+                self.handle_exception(str(e))
+            else:
+                if frame is not None:
+                    self.messageReceived.emit(frame)
 
 
 class InputPanel(QWidget):
@@ -278,7 +281,7 @@ class MessageTableModel(QAbstractTableModel):
         self.monospace_font.setStyleHint(QFont.StyleHint.TypeWriter)
         self.flush_timer = QTimer(self)
         self.flush_timer.timeout.connect(self.flush_message)
-        self.flush_timer.setInterval(100)
+        self.flush_timer.setInterval(50)
         self.flush_timer.start()
 
     @Slot(GSHostFrame)
@@ -593,7 +596,6 @@ class MainWindow(QWidget):
         # Prepare candle manager and polling thread.
         self.polling_thread = QThread(self)
         self.candle_manager = CandleManager()
-        self.polling_thread.started.connect(self.candle_manager.polling)
         self.candle_manager.moveToThread(self.polling_thread)
 
         # Timer for send message.
@@ -601,8 +603,9 @@ class MainWindow(QWidget):
         self.send_timer.setInterval(self.cycle_time_spin_box.value())
 
         # Message model for better performance.
+        self.message_model_thread = QThread(self)
         message_model = MessageTableModel()
-        message_model.moveToThread(self.polling_thread)
+        message_model.moveToThread(self.message_model_thread)
         self.message_viewer.setModel(message_model)
 
         # Dialog for configurate bit timing setting.
@@ -634,6 +637,7 @@ class MainWindow(QWidget):
 
         # Start thread and timer.
         self.polling_thread.start()
+        self.message_model_thread.start()
 
     def send_message_repeat(self, checked: bool) -> None:
         if checked:
@@ -811,8 +815,11 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event: QCloseEvent):
         self.polling_thread.requestInterruption()
+        self.message_model_thread.requestInterruption()
         self.polling_thread.quit()
+        self.message_model_thread.quit()
         self.polling_thread.wait()
+        self.message_model_thread.wait()
         event.accept()
 
 

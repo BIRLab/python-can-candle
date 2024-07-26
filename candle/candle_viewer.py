@@ -15,8 +15,7 @@ from PySide6.QtCore import (
     QThread,
     QAbstractTableModel,
     QModelIndex,
-    QPersistentModelIndex,
-    QSize
+    QPersistentModelIndex
 )
 from PySide6.QtGui import (
     QFocusEvent,
@@ -86,7 +85,7 @@ class CandleManager(QObject):
 
         self.polling_timer = QTimer()   # Do not set parent, timers cannot be stopped from another thread.
         self.polling_timer.timeout.connect(self.polling)
-        self.polling_timer.setInterval(1)
+        self.polling_timer.setInterval(10)
         self.polling_timer.start()
 
     @Slot()
@@ -186,7 +185,10 @@ class CandleManager(QObject):
     def polling(self) -> None:
         if self.state == CandleManagerState.Running:
             try:
-                frame = self.channel.read(1)
+                while True:
+                    frame = self.channel.read(1)
+                    if frame is not None:
+                        self.messageReceived.emit(frame)
             except usb.core.USBTimeoutError:
                 pass
             except usb.core.USBError as e:
@@ -195,9 +197,6 @@ class CandleManager(QObject):
                 except usb.core.USBError:
                     pass
                 self.handle_exception(str(e))
-            else:
-                if frame is not None:
-                    self.messageReceived.emit(frame)
 
 
 class InputPanel(QWidget):
@@ -270,7 +269,7 @@ class InputPanel(QWidget):
 
 
 class MessageTableModel(QAbstractTableModel):
-    rowInserted = Signal()
+    rowInserted = Signal(int, int)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -291,11 +290,13 @@ class MessageTableModel(QAbstractTableModel):
     @Slot()
     def flush_message(self) -> None:
         if self.message_pending:
-            self.beginInsertRows(QModelIndex(), len(self.message_buffer), len(self.message_buffer) + len(self.message_pending) - 1)
+            first_row = len(self.message_buffer)
+            last_row = len(self.message_buffer) + len(self.message_pending) - 1
+            self.beginInsertRows(QModelIndex(), first_row, last_row)
             self.message_buffer.extend(self.message_pending)
             self.message_pending.clear()
             self.endInsertRows()
-            self.rowInserted.emit()
+            self.rowInserted.emit(first_row, last_row)
 
     def rowCount(self, parent: Any = None) -> int:
         return len(self.message_buffer)
@@ -329,18 +330,9 @@ class MessageTableModel(QAbstractTableModel):
             if column == 4:
                 return str(message.header.data_length)
             if column == 5:
-                wrapped_data = []
-                for i in range(8):
-                    data = message.data[i * 8:i * 8 + 8]
-                    if not data:
-                        break
-                    wrapped_data.append(' '.join(f'{j:02X}' for j in data) + '\t' + ''.join(chr(j) if 31 < j < 127 else '.' for j in data))
-                return '\n'.join(wrapped_data)
+                return ' '.join(f'{i:02X}' for i in message.data)
         if role == Qt.ItemDataRole.FontRole:
-            if index.column() == 5:
-                return self.monospace_font
-        if role == Qt.ItemDataRole.SizeHintRole:
-            return QSize(0, 500)
+            return self.monospace_font
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
@@ -633,7 +625,7 @@ class MainWindow(QWidget):
         self.send_repeat_button.toggled.connect(self.send_message_repeat)
         self.send_eff_checkbox.toggled.connect(self.handle_extended_id_checked)
         self.random_data_button.clicked.connect(self.input_panel.random)
-        message_model.rowInserted.connect(self.message_viewer.scrollToBottom)
+        message_model.rowInserted.connect(self.handle_row_inserted)
 
         # Start thread and timer.
         self.polling_thread.start()
@@ -655,6 +647,12 @@ class MainWindow(QWidget):
         header.is_bitrate_switch = self.send_brs_checkbox.isEnabled() and self.send_brs_checkbox.isChecked()
         header.is_error_state_indicator = self.send_esi_checkbox.isEnabled() and self.send_esi_checkbox.isChecked()
         self.candle_manager.send_message(GSHostFrame(header, data, 0))
+
+    @Slot(int, int)
+    def handle_row_inserted(self, first_row: int, last_row: int) -> None:
+        for row in range(first_row, last_row + 1):
+            self.message_viewer.resizeRowToContents(row)
+        self.message_viewer.scrollToBottom()
 
     @Slot(bool)
     def handle_extended_id_checked(self, checked: bool) -> None:

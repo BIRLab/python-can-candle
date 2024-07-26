@@ -363,8 +363,13 @@ class BitTimingDialog(QDialog):
         self.bit_timing: Optional[Union[BitTiming, BitTimingFd]] = None
 
         vbox_layout = QVBoxLayout()
+        hbox_layout1 = QHBoxLayout()
         self.frequency_label = QLabel('Clock Frequency: unknown')
-        hbox_layout = QHBoxLayout()
+        self.enable_fd_checkbox = QCheckBox('Enable FD')
+        self.enable_fd_checkbox.setChecked(True)
+        hbox_layout1.addWidget(self.frequency_label)
+        hbox_layout1.addWidget(self.enable_fd_checkbox)
+        hbox_layout2 = QHBoxLayout()
         nominal_group_box = QGroupBox('Nominal Bit Rate')
         grid_layout1 = QGridLayout()
         self.nominal_bitrate_combox = QComboBox()
@@ -391,8 +396,8 @@ class BitTimingDialog(QDialog):
         grid_layout2.addWidget(QLabel('Sample Point [%]:'), 1, 0)
         grid_layout2.addWidget(self.data_sample_point_combox, 1, 1)
         data_group_box.setLayout(grid_layout2)
-        hbox_layout.addWidget(nominal_group_box)
-        hbox_layout.addWidget(data_group_box)
+        hbox_layout2.addWidget(nominal_group_box)
+        hbox_layout2.addWidget(data_group_box)
         self.bit_timing_table = QTableWidget()
         self.bit_timing_table.setColumnCount(6)
         self.bit_timing_table.setRowCount(2)
@@ -402,8 +407,8 @@ class BitTimingDialog(QDialog):
         self.bit_timing_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.bit_timing_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.ok_button = QPushButton('OK')
-        vbox_layout.addWidget(self.frequency_label)
-        vbox_layout.addLayout(hbox_layout)
+        vbox_layout.addLayout(hbox_layout1)
+        vbox_layout.addLayout(hbox_layout2)
         vbox_layout.addWidget(self.bit_timing_table)
         vbox_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         vbox_layout.addWidget(self.ok_button)
@@ -412,13 +417,31 @@ class BitTimingDialog(QDialog):
         self.nominal_sample_point_combox.currentIndexChanged.connect(self.calculate_bit_timing)
         self.data_bitrate_combox.currentIndexChanged.connect(self.calculate_bit_timing)
         self.data_sample_point_combox.currentIndexChanged.connect(self.calculate_bit_timing)
+        self.enable_fd_checkbox.toggled.connect(self.calculate_bit_timing)
         self.ok_button.clicked.connect(self.set_bit_timing)
+
+    def reset_calculate(self) -> None:
+        self.bit_timing_table.setItem(0, 0, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(0, 1, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(0, 2, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(0, 3, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(0, 4, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(0, 5, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(1, 0, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(1, 1, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(1, 2, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(1, 3, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(1, 4, QTableWidgetItem('-'))
+        self.bit_timing_table.setItem(1, 5, QTableWidgetItem('-'))
 
     @Slot()
     @Slot(int)
+    @Slot(bool)
     def calculate_bit_timing(self, *_args, **_kwargs) -> None:
         self.frequency_label.setText(f'Clock Frequency: {round(self.channel_info.fclk_can / 1e6)} MHz')
-        if self.channel_info.feature & GSCANFeature.FD:
+        if self.enable_fd_checkbox.isEnabled() and self.enable_fd_checkbox.isChecked():
+            self.data_bitrate_combox.setEnabled(True)
+            self.data_sample_point_combox.setEnabled(True)
             try:
                 self.bit_timing = BitTimingFd.from_sample_point(
                     f_clock=self.channel_info.fclk_can,
@@ -428,6 +451,7 @@ class BitTimingDialog(QDialog):
                     data_sample_point=float(self.data_sample_point_combox.currentText())
                 )
             except ValueError:
+                self.reset_calculate()
                 self.ok_button.setEnabled(False)
             else:
                 self.bit_timing_table.setItem(0, 0, QTableWidgetItem(str(self.bit_timing.nom_brp)))
@@ -444,6 +468,8 @@ class BitTimingDialog(QDialog):
                 self.bit_timing_table.setItem(1, 5, QTableWidgetItem(str(self.bit_timing.dbt)))
                 self.ok_button.setEnabled(True)
         else:
+            self.data_bitrate_combox.setEnabled(False)
+            self.data_sample_point_combox.setEnabled(False)
             try:
                 self.bit_timing = BitTiming.from_sample_point(
                     f_clock=self.channel_info.fclk_can,
@@ -451,6 +477,7 @@ class BitTimingDialog(QDialog):
                     sample_point=float(self.nominal_sample_point_combox.currentText())
                 )
             except ValueError:
+                self.reset_calculate()
                 self.ok_button.setEnabled(False)
             else:
                 self.bit_timing_table.setItem(0, 0, QTableWidgetItem(str(self.bit_timing.brp)))
@@ -470,6 +497,7 @@ class BitTimingDialog(QDialog):
     @Slot(GSDeviceBTConstExtended)
     def update_channel_info(self, info: GSDeviceBTConstExtended) -> None:
         self.channel_info = info
+        self.enable_fd_checkbox.setEnabled(self.channel_info.feature & GSCANFeature.FD)
         self.calculate_bit_timing()
 
     @Slot()

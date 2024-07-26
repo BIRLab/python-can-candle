@@ -84,7 +84,7 @@ class CandleManager(QObject):
         self.interface: Optional[CandleInterface] = None
         self.channel: Optional[CandleChannel] = None
 
-        self.polling_timer = QTimer(self)
+        self.polling_timer = QTimer()   # Do not set parent, timers cannot be stopped from another thread.
         self.polling_timer.timeout.connect(self.polling)
         self.polling_timer.setInterval(1)
         self.polling_timer.start()
@@ -279,7 +279,7 @@ class MessageTableModel(QAbstractTableModel):
         self.message_pending: List[GSHostFrame] = []
         self.monospace_font = QFont('Monospace')
         self.monospace_font.setStyleHint(QFont.StyleHint.TypeWriter)
-        self.flush_timer = QTimer(self)
+        self.flush_timer = QTimer()     # Do not set parent, timers cannot be stopped from another thread.
         self.flush_timer.timeout.connect(self.flush_message)
         self.flush_timer.setInterval(50)
         self.flush_timer.start()

@@ -186,6 +186,16 @@ class GSHostFrameHeader:
     flags: GSCANFlag
 
     @property
+    def valid(self) -> bool:
+        if self.can_dlc < 0 or self.channel < 0:
+            return False
+        if self.is_fd and self.can_dlc > 15:
+            return False
+        if not self.is_fd and self.can_dlc > 8:
+            return False
+        return True
+
+    @property
     def arbitration_id(self) -> int:
         if self.is_extended_id:
             return self.can_id & GSCANIDFlag.EFF_MASK
@@ -312,9 +322,7 @@ class GSHostFrame:
 
     @property
     def valid(self) -> bool:
-        if self.header.is_fd and self.header.can_dlc > 15:
-            return False
-        if not self.header.is_fd and self.header.can_dlc > 8:
+        if not self.header.valid:
             return False
         if not self.header.is_remote_frame and len(self.data) < self.header.data_length:
             return False
@@ -338,13 +346,19 @@ class GSHostFrame:
         return frame
 
     @classmethod
-    def unpack(cls, frame: bytes, is_hardware_timestamp: bool) -> GSHostFrame:
+    def unpack(cls, frame: bytes, is_hardware_timestamp: bool) -> Optional[GSHostFrame]:
+        if len(frame) < gs_host_frame_header_struct.size:
+            return None
         header = GSHostFrameHeader(*gs_host_frame_header_struct.unpack(frame[:gs_host_frame_header_struct.size]))
+        if not header.valid:
+            return None
         if header.is_remote_frame:
             gs_host_frame = cls(header)
         else:
             data = frame[gs_host_frame_header_struct.size:gs_host_frame_header_struct.size + header.data_length]
             gs_host_frame = cls(header, data)
+        if not gs_host_frame.valid:
+            return None
         if is_hardware_timestamp:
             gs_host_frame.timestamp_us = int.from_bytes(frame[-4:], 'little', signed=False)
         return gs_host_frame
@@ -637,7 +651,7 @@ class CandleChannel:
     def hardware_version(self) -> int:
         return self._parent.hardware_version
 
-    def read(self, timeout_ms: Optional[int] = None) -> GSHostFrame:
+    def read(self, timeout_ms: Optional[int] = None) -> Optional[GSHostFrame]:
         rx_size = gs_host_frame_header_struct.size
 
         if self.is_fd_supported:

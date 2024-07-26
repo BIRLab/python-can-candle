@@ -126,21 +126,23 @@ class CandleBus(can.bus.BusABC):
             frame = self._channel.read(timeout_ms)
         except usb.core.USBTimeoutError:
             return None, False
-        msg = can.Message(
-            timestamp=frame.timestamp,
-            arbitration_id=frame.header.arbitration_id,
-            is_extended_id=frame.header.is_extended_id,
-            is_remote_frame=frame.header.is_remote_frame,
-            is_error_frame=frame.header.is_error_frame,
-            channel=frame.header.channel,
-            dlc=frame.header.data_length,   # https://github.com/hardbyte/python-can/issues/749
-            data=frame.data,
-            is_fd=frame.header.is_fd,
-            is_rx=frame.header.is_rx,
-            bitrate_switch=frame.header.is_bitrate_switch,
-            error_state_indicator=frame.header.is_error_state_indicator
-        )
-        return msg, False
+        if frame is not None:
+            msg = can.Message(
+                timestamp=frame.timestamp,
+                arbitration_id=frame.header.arbitration_id,
+                is_extended_id=frame.header.is_extended_id,
+                is_remote_frame=frame.header.is_remote_frame,
+                is_error_frame=frame.header.is_error_frame,
+                channel=frame.header.channel,
+                dlc=frame.header.data_length,   # https://github.com/hardbyte/python-can/issues/749
+                data=frame.data,
+                is_fd=frame.header.is_fd,
+                is_rx=frame.header.is_rx,
+                bitrate_switch=frame.header.is_bitrate_switch,
+                error_state_indicator=frame.header.is_error_state_indicator
+            )
+            return msg, False
+        return None, False
 
     def send(self, msg: can.Message, timeout: Optional[float] = None) -> None:
         if not timeout:

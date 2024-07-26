@@ -2,14 +2,27 @@
 import sys
 import usb
 from can import BitTiming, BitTimingFd
+from typing import Optional, List, Union, Any, cast
+from enum import Enum, auto
+from functools import partial
+from random import randrange
 from PySide6.QtCore import (
     Signal,
     Slot,
     QObject,
     QTimer,
-    Qt
+    Qt,
+    QThread,
+    QAbstractTableModel,
+    QModelIndex,
+    QPersistentModelIndex,
+    QSize
 )
-from PySide6.QtGui import QFocusEvent, QFont
+from PySide6.QtGui import (
+    QFocusEvent,
+    QFont,
+    QCloseEvent
+)
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -30,9 +43,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDialog,
     QGroupBox,
-    QHeaderView
+    QHeaderView,
+    QTableView
 )
-from typing import Optional, List, Union, cast
 from candle.candle_api import (
     CandleDevice,
     CandleInterface,
@@ -45,9 +58,6 @@ from candle.candle_api import (
     GSCANFeature,
     DLC2LEN
 )
-from enum import Enum, auto
-from functools import partial
-from random import randrange
 
 
 class CandleManagerState(Enum):
@@ -73,10 +83,6 @@ class CandleManager(QObject):
         self.device_list: List[CandleDevice] = []
         self.interface: Optional[CandleInterface] = None
         self.channel: Optional[CandleChannel] = None
-
-        self.polling_timer = QTimer(self)
-        self.polling_timer.timeout.connect(self.polling)
-        self.polling_timer.setInterval(1)
 
     @Slot()
     def scan(self) -> None:
@@ -138,14 +144,12 @@ class CandleManager(QObject):
     @Slot(bool, bool, bool, bool, bool, bool)
     def start(self, fd: bool, loopback: bool, listen_only: bool, triple_sample: bool, one_shot: bool, bit_error_reporting: bool) -> None:
         if self.state == CandleManagerState.Configuration:
-            self.polling_timer.start()
             self.channel.open(fd, loopback, listen_only, triple_sample, one_shot, bit_error_reporting)
             self.transition(CandleManagerState.Running)
 
     @Slot()
     def stop(self) -> None:
         if self.state == CandleManagerState.Running:
-            self.polling_timer.stop()
             self.channel.close()
             self.transition(CandleManagerState.Configuration)
 
@@ -160,7 +164,6 @@ class CandleManager(QObject):
                 except usb.core.USBError:
                     pass
                 self.handle_exception(str(e))
-                self.transition(CandleManagerState.Configuration)
 
     def transition(self, to_state: CandleManagerState) -> None:
         if self.state != to_state:
@@ -174,20 +177,24 @@ class CandleManager(QObject):
         self.transition(CandleManagerState.DeviceSelection)
         self.exceptionOccurred.emit(error)
 
+    @Slot()
     def polling(self) -> None:
-        if self.state == CandleManagerState.Running:
-            try:
-                frame = self.channel.read(1)
-            except usb.core.USBTimeoutError:
-                pass
-            except usb.core.USBError as e:
+        while not QThread.currentThread().isInterruptionRequested():
+            QApplication.processEvents()    # Avoid blocking GUI
+            if self.state == CandleManagerState.Running:
                 try:
-                    self.channel.close()
-                except usb.core.USBError:
+                    frame = self.channel.read(1)
+                except usb.core.USBTimeoutError:
                     pass
-                self.handle_exception(str(e))
-            else:
-                self.messageReceived.emit(frame)
+                except usb.core.USBError as e:
+                    try:
+                        self.channel.close()
+                    except usb.core.USBError:
+                        pass
+                    self.handle_exception(str(e))
+                else:
+                    if frame is not None:
+                        self.messageReceived.emit(frame)
 
 
 class InputPanel(QWidget):
@@ -257,6 +264,89 @@ class InputPanel(QWidget):
                 if line_edit.isEnabled():
                     data.append(int(line_edit.text(), 16))
         return bytes(data)
+
+
+class MessageTableModel(QAbstractTableModel):
+    rowInserted = Signal()
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self.header = ('Timestamp', 'Rx/Tx', 'Flags', 'CAN ID', 'DLC', 'Data')
+        self.message_buffer: List[GSHostFrame] = []
+        self.message_pending: List[GSHostFrame] = []
+        self.monospace_font = QFont('Monospace')
+        self.monospace_font.setStyleHint(QFont.StyleHint.TypeWriter)
+        self.flush_timer = QTimer(self)
+        self.flush_timer.timeout.connect(self.flush_message)
+        self.flush_timer.setInterval(100)
+        self.flush_timer.start()
+
+    @Slot(GSHostFrame)
+    def handle_message(self, message: GSHostFrame) -> None:
+        self.message_pending.append(message)
+
+    @Slot()
+    def flush_message(self) -> None:
+        if self.message_pending:
+            self.beginInsertRows(QModelIndex(), len(self.message_buffer), len(self.message_buffer) + len(self.message_pending) - 1)
+            self.message_buffer.extend(self.message_pending)
+            self.message_pending.clear()
+            self.endInsertRows()
+            self.rowInserted.emit()
+
+    def rowCount(self, parent: Any = None) -> int:
+        return len(self.message_buffer)
+
+    def columnCount(self, parent: Any = None) -> int:
+        return len(self.header)
+
+    def data(self, index: Union[QModelIndex, QPersistentModelIndex], role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if role == Qt.ItemDataRole.DisplayRole:
+            message = self.message_buffer[index.row()]
+            column = index.column()
+            if column == 0:
+                return str(message.timestamp)
+            if column == 1:
+                return 'Rx' if message.header.is_rx else 'Tx'
+            if column == 2:
+                flags = ['EFF' if message.header.is_extended_id else 'SFF']
+                if message.header.is_error_frame:
+                    flags.append('E')
+                if message.header.is_remote_frame:
+                    flags.append('R')
+                if message.header.is_fd:
+                    flags.append('FD')
+                if message.header.is_bitrate_switch:
+                    flags.append('BRS')
+                if message.header.is_error_state_indicator:
+                    flags.append('ESI')
+                return ' '.join(flags)
+            if column == 3:
+                return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
+            if column == 4:
+                return str(message.header.data_length)
+            if column == 5:
+                wrapped_data = []
+                for i in range(8):
+                    data = message.data[i * 8:i * 8 + 8]
+                    if not data:
+                        break
+                    wrapped_data.append(' '.join(f'{j:02X}' for j in data) + '\t' + ''.join(chr(j) if 31 < j < 127 else '.' for j in data))
+                return '\n'.join(wrapped_data)
+        if role == Qt.ItemDataRole.FontRole:
+            if index.column() == 5:
+                return self.monospace_font
+        if role == Qt.ItemDataRole.SizeHintRole:
+            return QSize(0, 500)
+        return None
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if role == Qt.ItemDataRole.DisplayRole:
+            if orientation == Qt.Orientation.Horizontal:
+                return self.header[section]
+            elif orientation == Qt.Orientation.Vertical:
+                return str(section + 1)
+        return None
 
 
 class BitTimingDialog(QDialog):
@@ -394,12 +484,8 @@ class MainWindow(QWidget):
         self.setWindowTitle('Candle Viewer')
         self.resize(1280, 720)
 
-        self.channel_manager = CandleManager(self)
-
-        self.send_timer = QTimer()
-
+        # Setup UI.
         vbox_layout = QVBoxLayout(self)
-
         hbox_layout1 = QHBoxLayout()
         self.scan_button = QPushButton('Scan')
         self.device_selector = QComboBox()
@@ -419,7 +505,6 @@ class MainWindow(QWidget):
         hbox_layout1.addWidget(self.bit_timing_button)
         hbox_layout1.addWidget(self.start_button)
         hbox_layout1.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-
         hbox_layout2 = QHBoxLayout()
         self.fd_checkbox = QCheckBox('FD')
         self.fd_checkbox.setEnabled(False)
@@ -440,14 +525,8 @@ class MainWindow(QWidget):
         hbox_layout2.addWidget(self.one_shot_checkbox)
         hbox_layout2.addWidget(self.bit_error_reporting_checkbox)
         hbox_layout2.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-
-        self.message_viewer = QTableWidget()
-        self.message_viewer.setColumnCount(6)
-        self.message_viewer.setHorizontalHeaderLabels(['Timestamp', 'Rx/Tx', 'Flags', 'CAN ID', 'DLC', 'Data'])
+        self.message_viewer = QTableView()
         self.message_viewer.horizontalHeader().setStretchLastSection(True)
-        self.message_viewer.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.message_viewer.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-
         hbox_layout3 = QHBoxLayout()
         vbox_layout1 = QVBoxLayout()
         self.send_id_spin_box = QSpinBox()
@@ -490,6 +569,7 @@ class MainWindow(QWidget):
         self.cycle_time_spin_box.setSuffix(' ms')
         self.cycle_time_spin_box.setMinimum(1)
         self.cycle_time_spin_box.setMaximum(100000)
+        self.cycle_time_spin_box.setValue(10)
         self.cycle_time_spin_box.setEnabled(False)
         self.random_data_button = QPushButton('Random Data')
         self.random_data_button.setEnabled(False)
@@ -504,28 +584,42 @@ class MainWindow(QWidget):
         hbox_layout3.addWidget(self.input_panel)
         hbox_layout3.addLayout(vbox_layout2)
         hbox_layout3.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-
         vbox_layout.addLayout(hbox_layout1)
         vbox_layout.addLayout(hbox_layout2)
         vbox_layout.addWidget(self.message_viewer, 1)
         vbox_layout.addLayout(hbox_layout3)
-
         self.setLayout(vbox_layout)
 
-        self.bit_timing_dialog = BitTimingDialog(self)
+        # Prepare candle manager and polling thread.
+        self.polling_thread = QThread(self)
+        self.candle_manager = CandleManager()
+        self.polling_thread.started.connect(self.candle_manager.polling)
+        self.candle_manager.moveToThread(self.polling_thread)
+
+        # Timer for send message.
+        self.send_timer = QTimer(self)
         self.send_timer.setInterval(self.cycle_time_spin_box.value())
 
-        self.channel_manager.stateTransition.connect(self.handle_state_transition)
-        self.scan_button.clicked.connect(self.channel_manager.scan)
-        self.channel_manager.scanResult.connect(self.handle_scan_result)
-        self.device_selector.currentIndexChanged.connect(self.channel_manager.select_device)
-        self.channel_selector.currentIndexChanged.connect(self.channel_manager.select_channel)
-        self.channel_manager.messageReceived.connect(self.handle_message)
-        self.channel_manager.exceptionOccurred.connect(self.handle_device_exception)
+        # Message model for better performance.
+        message_model = MessageTableModel()
+        message_model.moveToThread(self.polling_thread)
+        self.message_viewer.setModel(message_model)
+
+        # Dialog for configurate bit timing setting.
+        self.bit_timing_dialog = BitTimingDialog(self)
+
+        # Connect signals and slots.
+        self.candle_manager.stateTransition.connect(self.handle_state_transition)
+        self.scan_button.clicked.connect(self.candle_manager.scan)
+        self.candle_manager.scanResult.connect(self.handle_scan_result)
+        self.device_selector.currentIndexChanged.connect(self.candle_manager.select_device)
+        self.channel_selector.currentIndexChanged.connect(self.candle_manager.select_channel)
+        self.candle_manager.messageReceived.connect(message_model.handle_message)
+        self.candle_manager.exceptionOccurred.connect(self.handle_device_exception)
         self.start_button.toggled.connect(self.handle_start)
-        self.bit_timing_dialog.setBitTiming.connect(self.channel_manager.set_bit_timing)
-        self.bit_timing_dialog.setDataBitTiming.connect(self.channel_manager.set_data_bit_timing)
-        self.channel_manager.channelInfo.connect(self.bit_timing_dialog.update_channel_info)
+        self.bit_timing_dialog.setBitTiming.connect(self.candle_manager.set_bit_timing)
+        self.bit_timing_dialog.setDataBitTiming.connect(self.candle_manager.set_data_bit_timing)
+        self.candle_manager.channelInfo.connect(self.bit_timing_dialog.update_channel_info)
         self.bit_timing_button.clicked.connect(self.bit_timing_dialog.exec)
         self.send_dlc_selector.currentIndexChanged.connect(self.input_panel.set_dlc)
         self.send_rtr_checkbox.toggled.connect(self.handle_remote_frame_checked)
@@ -536,6 +630,10 @@ class MainWindow(QWidget):
         self.send_repeat_button.toggled.connect(self.send_message_repeat)
         self.send_eff_checkbox.toggled.connect(self.handle_extended_id_checked)
         self.random_data_button.clicked.connect(self.input_panel.random)
+        message_model.rowInserted.connect(self.message_viewer.scrollToBottom)
+
+        # Start thread and timer.
+        self.polling_thread.start()
 
     def send_message_repeat(self, checked: bool) -> None:
         if checked:
@@ -546,13 +644,13 @@ class MainWindow(QWidget):
     @Slot()
     def send_message(self) -> None:
         data = self.input_panel.data()
-        header = GSHostFrameHeader(0, self.send_id_spin_box.value(), self.send_dlc_selector.currentIndex(), self.channel_manager.channel.index, GSCANFlag(0))
+        header = GSHostFrameHeader(0, self.send_id_spin_box.value(), self.send_dlc_selector.currentIndex(), self.channel_selector.currentIndex(), GSCANFlag(0))
         header.is_extended_id = self.send_eff_checkbox.isChecked()
         header.is_remote_frame = self.send_rtr_checkbox.isChecked()
         header.is_fd = self.send_fd_checkbox.isEnabled() and self.send_fd_checkbox.isChecked()
         header.is_bitrate_switch = self.send_brs_checkbox.isEnabled() and self.send_brs_checkbox.isChecked()
         header.is_error_state_indicator = self.send_esi_checkbox.isEnabled() and self.send_esi_checkbox.isChecked()
-        self.channel_manager.send_message(GSHostFrame(header, data, 0))
+        self.candle_manager.send_message(GSHostFrame(header, data, 0))
 
     @Slot(bool)
     def handle_extended_id_checked(self, checked: bool) -> None:
@@ -576,7 +674,7 @@ class MainWindow(QWidget):
             self.send_dlc_selector.addItems([str(i) for i in DLC2LEN[9:]])
 
     @Slot(CandleManagerState)
-    def handle_state_transition(self, from_state: CandleManagerState, to_state: CandleManagerState) -> None:
+    def handle_state_transition(self, _from_state: CandleManagerState, to_state: CandleManagerState) -> None:
         if to_state == CandleManagerState.DeviceSelection:
             self.device_selector.setEnabled(True)
             self.channel_selector.setEnabled(False)
@@ -598,6 +696,7 @@ class MainWindow(QWidget):
             self.input_panel.setEnabled(False)
             self.send_once_button.setEnabled(False)
             self.send_repeat_button.setEnabled(False)
+            self.send_repeat_button.setChecked(False)
             self.cycle_time_spin_box.setEnabled(False)
             self.random_data_button.setEnabled(False)
         if to_state == CandleManagerState.ChannelSelection:
@@ -621,21 +720,25 @@ class MainWindow(QWidget):
             self.input_panel.setEnabled(False)
             self.send_once_button.setEnabled(False)
             self.send_repeat_button.setEnabled(False)
+            self.send_repeat_button.setChecked(False)
             self.cycle_time_spin_box.setEnabled(False)
             self.random_data_button.setEnabled(False)
             self.channel_selector.clear()
-            self.channel_selector.addItems([str(i) for i in range(len(self.channel_manager.interface))])    # type: ignore[arg-type]
+            self.channel_selector.addItems([str(i) for i in range(len(self.candle_manager.interface))])    # type: ignore[arg-type]
         if to_state == CandleManagerState.Configuration:
             self.device_selector.setEnabled(True)
             self.channel_selector.setEnabled(True)
             self.bit_timing_button.setEnabled(True)
             self.start_button.setEnabled(True)
-            self.fd_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
-            self.loopback_checkbox.setEnabled(self.channel_manager.channel.is_loop_back_supported)
-            self.listen_only_checkbox.setEnabled(self.channel_manager.channel.is_listen_only_supported)
-            self.triple_sample_checkbox.setEnabled(self.channel_manager.channel.is_triple_sample_supported)
-            self.one_shot_checkbox.setEnabled(self.channel_manager.channel.is_one_shot_supported)
-            self.bit_error_reporting_checkbox.setEnabled(self.channel_manager.channel.is_bit_error_reporting_supported)
+            try:
+                self.fd_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
+                self.loopback_checkbox.setEnabled(self.candle_manager.channel.is_loop_back_supported)
+                self.listen_only_checkbox.setEnabled(self.candle_manager.channel.is_listen_only_supported)
+                self.triple_sample_checkbox.setEnabled(self.candle_manager.channel.is_triple_sample_supported)
+                self.one_shot_checkbox.setEnabled(self.candle_manager.channel.is_one_shot_supported)
+                self.bit_error_reporting_checkbox.setEnabled(self.candle_manager.channel.is_bit_error_reporting_supported)
+            except AttributeError:
+                pass
             self.send_id_spin_box.setEnabled(False)
             self.send_dlc_selector.setEnabled(False)
             self.send_eff_checkbox.setEnabled(False)
@@ -646,10 +749,14 @@ class MainWindow(QWidget):
             self.input_panel.setEnabled(False)
             self.send_once_button.setEnabled(False)
             self.send_repeat_button.setEnabled(False)
+            self.send_repeat_button.setChecked(False)
             self.cycle_time_spin_box.setEnabled(False)
             self.random_data_button.setEnabled(False)
             self.start_button.setChecked(False)
-            self.fd_checkbox.setChecked(self.channel_manager.channel.is_fd_supported)
+            try:
+                self.fd_checkbox.setChecked(self.candle_manager.channel.is_fd_supported)
+            except AttributeError:
+                pass
         if to_state == CandleManagerState.Running:
             self.device_selector.setEnabled(False)
             self.channel_selector.setEnabled(False)
@@ -665,12 +772,13 @@ class MainWindow(QWidget):
             self.send_dlc_selector.setEnabled(True)
             self.send_eff_checkbox.setEnabled(True)
             self.send_rtr_checkbox.setEnabled(True)
-            self.send_fd_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
-            self.send_brs_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
-            self.send_esi_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
+            self.send_fd_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
+            self.send_brs_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
+            self.send_esi_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
             self.input_panel.setEnabled(not self.send_rtr_checkbox.isChecked())
             self.send_once_button.setEnabled(True)
             self.send_repeat_button.setEnabled(True)
+            self.send_repeat_button.setChecked(False)
             self.cycle_time_spin_box.setEnabled(True)
             self.random_data_button.setEnabled(True)
             self.handle_send_fd_checked(self.send_fd_checkbox.isChecked())
@@ -684,7 +792,7 @@ class MainWindow(QWidget):
     @Slot(bool)
     def handle_start(self, start: bool) -> None:
         if start:
-            self.channel_manager.start(
+            self.candle_manager.start(
                 self.fd_checkbox.isChecked() if self.fd_checkbox.isEnabled() else False,
                 self.loopback_checkbox.isChecked() if self.loopback_checkbox.isEnabled() else False,
                 self.listen_only_checkbox.isChecked() if self.listen_only_checkbox.isEnabled() else False,
@@ -693,42 +801,7 @@ class MainWindow(QWidget):
                 self.bit_error_reporting_checkbox.isChecked() if self.bit_error_reporting_checkbox.isEnabled() else False
             )
         else:
-            self.channel_manager.stop()
-
-    @Slot(GSHostFrame)
-    def handle_message(self, message: GSHostFrame):
-        flags = ['EFF' if message.header.is_extended_id else 'SFF']
-        if message.header.is_error_frame:
-            flags.append('E')
-        if message.header.is_remote_frame:
-            flags.append('R')
-        if message.header.is_fd:
-            flags.append('FD')
-        if message.header.is_bitrate_switch:
-            flags.append('BRS')
-        if message.header.is_error_state_indicator:
-            flags.append('ESI')
-
-        wrapped_data = []
-        for i in range(8):
-            data = message.data[i * 8:i * 8 + 8]
-            if not data:
-                break
-            wrapped_data.append(' '.join(f'{j:02X}' for j in data) + '\t' + ''.join(chr(j) if 31 < j < 127 else '.' for j in data))
-        wrapped_data_item = QTableWidgetItem('\n'.join(wrapped_data))
-        wrapped_data_font = QFont('Monospace')
-        wrapped_data_font.setStyleHint(QFont.StyleHint.TypeWriter)
-        wrapped_data_item.setFont(wrapped_data_font)
-
-        row_index = self.message_viewer.rowCount()
-        self.message_viewer.insertRow(row_index)
-        self.message_viewer.setItem(row_index, 0, QTableWidgetItem(str(message.timestamp)))
-        self.message_viewer.setItem(row_index, 1, QTableWidgetItem('Rx' if message.header.is_rx else 'Tx'))
-        self.message_viewer.setItem(row_index, 2, QTableWidgetItem(' '.join(flags)))
-        self.message_viewer.setItem(row_index, 3, QTableWidgetItem(f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'))
-        self.message_viewer.setItem(row_index, 4, QTableWidgetItem(str(message.header.data_length)))
-        self.message_viewer.setItem(row_index, 5, wrapped_data_item)
-        self.message_viewer.scrollToBottom()
+            self.candle_manager.stop()
 
     @Slot(str)
     def handle_device_exception(self, error: str) -> None:
@@ -736,9 +809,16 @@ class MainWindow(QWidget):
         message_box.setText(error)
         message_box.open()
 
+    def closeEvent(self, event: QCloseEvent):
+        self.polling_thread.requestInterruption()
+        self.polling_thread.quit()
+        self.polling_thread.wait()
+        event.accept()
+
 
 def main():
     app = QApplication(sys.argv)
+    app.setStyle('Fusion')
     main_window = MainWindow()
     main_window.show()
     return app.exec()

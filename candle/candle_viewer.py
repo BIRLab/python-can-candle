@@ -198,6 +198,14 @@ class CandleManager(QObject):
                     pass
                 self.handle_exception(str(e))
 
+    @Slot()
+    def cleanup(self) -> None:
+        if self.channel is not None:
+            try:
+                self.channel.close()
+            except usb.core.USBError:
+                pass
+
 
 class InputPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -276,8 +284,9 @@ class MessageTableModel(QAbstractTableModel):
         self.header = ('Timestamp', 'Rx/Tx', 'Flags', 'CAN ID', 'DLC', 'Data')
         self.message_buffer: List[GSHostFrame] = []
         self.message_pending: List[GSHostFrame] = []
-        self.monospace_font = QFont('Monospace')
+        self.monospace_font = QFont('Monospace', 10)
         self.monospace_font.setStyleHint(QFont.StyleHint.TypeWriter)
+        self.monospace_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
         self.flush_timer = QTimer()     # Do not set parent, timers cannot be stopped from another thread.
         self.flush_timer.timeout.connect(self.flush_message)
         self.flush_timer.setInterval(50)
@@ -626,6 +635,7 @@ class MainWindow(QWidget):
         self.send_eff_checkbox.toggled.connect(self.handle_extended_id_checked)
         self.random_data_button.clicked.connect(self.input_panel.random)
         message_model.rowInserted.connect(self.handle_row_inserted)
+        self.polling_thread.finished.connect(self.candle_manager.cleanup)
 
         # Start thread and timer.
         self.polling_thread.start()

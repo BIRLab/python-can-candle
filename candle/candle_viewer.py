@@ -497,7 +497,7 @@ class BitTimingDialog(QDialog):
     @Slot(GSDeviceBTConstExtended)
     def update_channel_info(self, info: GSDeviceBTConstExtended) -> None:
         self.channel_info = info
-        self.enable_fd_checkbox.setEnabled(self.channel_info.feature & GSCANFeature.FD)
+        self.enable_fd_checkbox.setEnabled(bool(self.channel_info.feature & GSCANFeature.FD))
         self.calculate_bit_timing()
 
     @Slot()

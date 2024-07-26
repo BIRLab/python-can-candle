@@ -668,7 +668,7 @@ class MainWindow(QWidget):
             self.send_fd_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
             self.send_brs_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
             self.send_esi_checkbox.setEnabled(self.channel_manager.channel.is_fd_supported)
-            self.input_panel.setEnabled(self.send_rtr_checkbox.isChecked())
+            self.input_panel.setEnabled(not self.send_rtr_checkbox.isChecked())
             self.send_once_button.setEnabled(True)
             self.send_repeat_button.setEnabled(True)
             self.cycle_time_spin_box.setEnabled(True)

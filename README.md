@@ -141,4 +141,6 @@ channel.close()
 
 ## Reference
 
-https://github.com/torvalds/linux/blob/master/drivers/net/can/usb/gs_usb.c
+- [linux gs_usb driver](https://github.com/torvalds/linux/blob/master/drivers/net/can/usb/gs_usb.c)
+- [python gs_usb driver](https://github.com/jxltom/gs_usb)
+- [candleLight firmware](https://github.com/candle-usb/candleLight_fw)

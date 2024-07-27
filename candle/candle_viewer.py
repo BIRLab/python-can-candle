@@ -359,6 +359,7 @@ class BitTimingDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.setWindowTitle('Bit Timing Configuration')
         self.channel_info = GSDeviceBTConstExtended(GSCANFeature(-1), -1, -1, -1, -1, -1, -1, -1, -1, -1)
         self.bit_timing: Optional[Union[BitTiming, BitTimingFd]] = None
 

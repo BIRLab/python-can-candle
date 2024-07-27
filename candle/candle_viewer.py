@@ -307,6 +307,13 @@ class MessageTableModel(QAbstractTableModel):
             self.endInsertRows()
             self.rowInserted.emit(first_row, last_row)
 
+    @Slot()
+    def clear_message(self) -> None:
+        self.beginResetModel()
+        self.message_pending.clear()
+        self.message_buffer.clear()
+        self.endResetModel()
+
     def rowCount(self, parent: Any = None) -> int:
         return len(self.message_buffer)
 
@@ -553,6 +560,7 @@ class MainWindow(QWidget):
         self.one_shot_checkbox.setEnabled(False)
         self.bit_error_reporting_checkbox = QCheckBox('Bit Error Reporting')
         self.bit_error_reporting_checkbox.setEnabled(False)
+        clear_button = QPushButton('Clear')
         hbox_layout2.addWidget(self.fd_checkbox)
         hbox_layout2.addWidget(self.loopback_checkbox)
         hbox_layout2.addWidget(self.listen_only_checkbox)
@@ -560,6 +568,7 @@ class MainWindow(QWidget):
         hbox_layout2.addWidget(self.one_shot_checkbox)
         hbox_layout2.addWidget(self.bit_error_reporting_checkbox)
         hbox_layout2.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        hbox_layout2.addWidget(clear_button)
         self.message_viewer = QTableView()
         self.message_viewer.horizontalHeader().setStretchLastSection(True)
         hbox_layout3 = QHBoxLayout()
@@ -667,6 +676,7 @@ class MainWindow(QWidget):
         self.random_data_button.clicked.connect(self.input_panel.random)
         message_model.rowInserted.connect(self.handle_row_inserted)
         self.polling_thread.finished.connect(self.candle_manager.cleanup)
+        clear_button.clicked.connect(message_model.clear_message)
 
         # Start thread and timer.
         self.polling_thread.start()

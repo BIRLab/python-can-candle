@@ -281,7 +281,7 @@ class MessageTableModel(QAbstractTableModel):
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self.header = ('Timestamp', 'Rx/Tx', 'Flags', 'CAN ID', 'DLC', 'Data')
+        self.header = ('Timestamp', 'Rx/Tx', 'EFF', 'RTR', 'FD', 'BRS', 'ESI', 'CAN ID', 'DLC', 'Data')
         self.message_buffer: List[GSHostFrame] = []
         self.message_pending: List[GSHostFrame] = []
         self.monospace_font = QFont('Monospace', 10)
@@ -329,26 +329,26 @@ class MessageTableModel(QAbstractTableModel):
             if column == 1:
                 return 'Rx' if message.header.is_rx else 'Tx'
             if column == 2:
-                flags = ['EFF' if message.header.is_extended_id else 'SFF']
-                if message.header.is_error_frame:
-                    flags.append('E')
-                if message.header.is_remote_frame:
-                    flags.append('R')
-                if message.header.is_fd:
-                    flags.append('FD')
-                if message.header.is_bitrate_switch:
-                    flags.append('BRS')
-                if message.header.is_error_state_indicator:
-                    flags.append('ESI')
-                return ' '.join(flags)
+                return 'Y' if message.header.is_extended_id else 'N'
             if column == 3:
-                return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
+                return 'Y' if message.header.is_remote_frame else 'N'
             if column == 4:
-                return str(message.header.data_length)
+                return 'Y' if message.header.is_fd else 'N'
             if column == 5:
+                return 'Y' if message.header.is_bitrate_switch else 'N'
+            if column == 6:
+                return 'Y' if message.header.is_error_state_indicator else 'N'
+            if column == 7:
+                return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
+            if column == 8:
+                return str(message.header.data_length)
+            if column == 9:
                 return ' '.join(f'{i:02X}' for i in message.data)
         if role == Qt.ItemDataRole.FontRole:
             return self.monospace_font
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            if 0 < index.column() < 9:
+                return Qt.AlignmentFlag.AlignCenter
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
@@ -574,6 +574,8 @@ class MainWindow(QWidget):
         self.bit_error_reporting_checkbox.setEnabled(False)
         self.termination_checkbox = QCheckBox('Termination')
         self.termination_checkbox.setEnabled(False)
+        self.auto_scroll_checkbox = QCheckBox('Auto Scroll')
+        self.auto_scroll_checkbox.setChecked(True)
         clear_button = QPushButton('Clear')
         hbox_layout2.addWidget(self.fd_checkbox)
         hbox_layout2.addWidget(self.loopback_checkbox)
@@ -583,6 +585,7 @@ class MainWindow(QWidget):
         hbox_layout2.addWidget(self.bit_error_reporting_checkbox)
         hbox_layout2.addWidget(self.termination_checkbox)
         hbox_layout2.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        hbox_layout2.addWidget(self.auto_scroll_checkbox)
         hbox_layout2.addWidget(clear_button)
         self.message_viewer = QTableView()
         self.message_viewer.horizontalHeader().setStretchLastSection(True)
@@ -663,6 +666,10 @@ class MainWindow(QWidget):
         message_model = MessageTableModel()
         message_model.moveToThread(self.message_model_thread)
         self.message_viewer.setModel(message_model)
+        self.message_viewer.setColumnWidth(1, 60)
+        for i in range(2, 7):
+            self.message_viewer.setColumnWidth(i, 40)
+        self.message_viewer.setColumnWidth(8, 60)
 
         # Dialog for configurate bit timing setting.
         self.bit_timing_dialog = BitTimingDialog(self)
@@ -719,7 +726,8 @@ class MainWindow(QWidget):
     def handle_row_inserted(self, first_row: int, last_row: int) -> None:
         for row in range(first_row, last_row + 1):
             self.message_viewer.resizeRowToContents(row)
-        self.message_viewer.scrollToBottom()
+        if self.auto_scroll_checkbox.isChecked():
+            self.message_viewer.scrollToBottom()
 
     @Slot(bool)
     def handle_extended_id_checked(self, checked: bool) -> None:

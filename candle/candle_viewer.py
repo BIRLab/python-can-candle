@@ -386,7 +386,7 @@ class BitTimingDialog(QDialog):
         data_group_box = QGroupBox('Data Bit Rate')
         grid_layout2 = QGridLayout()
         self.data_bitrate_combox = QComboBox()
-        self.data_bitrate_combox.addItems(['12000', '8000', '5000', '2000'])
+        self.data_bitrate_combox.addItems(['15000', '12000', '8000', '5000', '2000', '1000'])
         self.data_bitrate_combox.setEditable(True)
         self.data_sample_point_combox = QComboBox()
         self.data_sample_point_combox.addItems(['87.5', '75', '62.5', '50'])

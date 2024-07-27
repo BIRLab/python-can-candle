@@ -406,6 +406,8 @@ class BitTimingDialog(QDialog):
         data_group_box.setLayout(grid_layout2)
         hbox_layout2.addWidget(nominal_group_box)
         hbox_layout2.addWidget(data_group_box)
+        result_group_box = QGroupBox('Solution')
+        vbox_layout1 = QVBoxLayout()
         self.bit_timing_table = QTableWidget()
         self.bit_timing_table.setColumnCount(6)
         self.bit_timing_table.setRowCount(2)
@@ -414,10 +416,14 @@ class BitTimingDialog(QDialog):
         self.bit_timing_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.bit_timing_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.bit_timing_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.result_label = QLabel()
+        vbox_layout1.addWidget(self.bit_timing_table)
+        vbox_layout1.addWidget(self.result_label)
+        result_group_box.setLayout(vbox_layout1)
         self.ok_button = QPushButton('OK')
         vbox_layout.addLayout(hbox_layout1)
         vbox_layout.addLayout(hbox_layout2)
-        vbox_layout.addWidget(self.bit_timing_table)
+        vbox_layout.addWidget(result_group_box)
         vbox_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         vbox_layout.addWidget(self.ok_button)
         self.setLayout(vbox_layout)
@@ -461,6 +467,7 @@ class BitTimingDialog(QDialog):
             except ValueError:
                 self.reset_calculate()
                 self.ok_button.setEnabled(False)
+                self.result_label.setText('Cannot find a satisfactory solution.')
             else:
                 self.bit_timing_table.setItem(0, 0, QTableWidgetItem(str(self.bit_timing.nom_brp)))
                 self.bit_timing_table.setItem(0, 1, QTableWidgetItem(str(self.bit_timing.nom_tseg1)))
@@ -474,6 +481,7 @@ class BitTimingDialog(QDialog):
                 self.bit_timing_table.setItem(1, 3, QTableWidgetItem(str(self.bit_timing.data_sjw)))
                 self.bit_timing_table.setItem(1, 4, QTableWidgetItem(f'{self.bit_timing.data_tq} ns'))
                 self.bit_timing_table.setItem(1, 5, QTableWidgetItem(str(self.bit_timing.dbt)))
+                self.result_label.setText(f'Nominal Bit Rate {self.bit_timing.nom_bitrate / 1e3} kbit/s\tNominal Sample Point {self.bit_timing.nom_sample_point}%\nData Bit Rate {self.bit_timing.data_bitrate / 1e3} kbit/s\tData Sample Point {self.bit_timing.data_sample_point}%')
                 self.ok_button.setEnabled(True)
         else:
             self.data_bitrate_combox.setEnabled(False)
@@ -487,6 +495,7 @@ class BitTimingDialog(QDialog):
             except ValueError:
                 self.reset_calculate()
                 self.ok_button.setEnabled(False)
+                self.result_label.setText('Cannot find a satisfactory solution.')
             else:
                 self.bit_timing_table.setItem(0, 0, QTableWidgetItem(str(self.bit_timing.brp)))
                 self.bit_timing_table.setItem(0, 1, QTableWidgetItem(str(self.bit_timing.tseg1)))
@@ -500,6 +509,7 @@ class BitTimingDialog(QDialog):
                 self.bit_timing_table.setItem(1, 3, QTableWidgetItem('-'))
                 self.bit_timing_table.setItem(1, 4, QTableWidgetItem('-'))
                 self.bit_timing_table.setItem(1, 5, QTableWidgetItem('-'))
+                self.result_label.setText(f'Nominal Bit Rate {self.bit_timing.bitrate / 1e3} kbit/s\tNominal Sample Point {self.bit_timing.sample_point}%')
                 self.ok_button.setEnabled(True)
 
     @Slot(GSDeviceBTConstExtended)

@@ -281,7 +281,7 @@ class MessageTableModel(QAbstractTableModel):
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self.header = ('Timestamp', 'Rx/Tx', 'EFF', 'RTR', 'FD', 'BRS', 'ESI', 'CAN ID', 'DLC', 'Data')
+        self.header = ('Timestamp', 'Rx/Tx', 'EFF', 'RTR', 'ERR', 'FD', 'BRS', 'ESI', 'CAN ID', 'DLC', 'Data')
         self.message_buffer: List[GSHostFrame] = []
         self.message_pending: List[GSHostFrame] = []
         self.monospace_font = QFont('Monospace', 10)
@@ -333,21 +333,23 @@ class MessageTableModel(QAbstractTableModel):
             if column == 3:
                 return 'Y' if message.header.is_remote_frame else 'N'
             if column == 4:
-                return 'Y' if message.header.is_fd else 'N'
+                return 'Y' if message.header.is_error_frame else 'N'
             if column == 5:
-                return 'Y' if message.header.is_bitrate_switch else 'N'
+                return 'Y' if message.header.is_fd else 'N'
             if column == 6:
-                return 'Y' if message.header.is_error_state_indicator else 'N'
+                return 'Y' if message.header.is_bitrate_switch else 'N'
             if column == 7:
-                return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
+                return 'Y' if message.header.is_error_state_indicator else 'N'
             if column == 8:
-                return str(message.header.data_length)
+                return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
             if column == 9:
+                return str(message.header.data_length)
+            if column == 10:
                 return ' '.join(f'{i:02X}' for i in message.data)
         if role == Qt.ItemDataRole.FontRole:
             return self.monospace_font
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if 0 < index.column() < 9:
+            if 0 < index.column() < 10:
                 return Qt.AlignmentFlag.AlignCenter
         return None
 
@@ -603,6 +605,8 @@ class MainWindow(QWidget):
         self.send_eff_checkbox.setEnabled(False)
         self.send_rtr_checkbox = QCheckBox('RTR')
         self.send_rtr_checkbox.setEnabled(False)
+        self.send_err_checkbox = QCheckBox('ERR')
+        self.send_err_checkbox.setEnabled(False)
         self.send_fd_checkbox = QCheckBox('FD')
         self.send_fd_checkbox.setEnabled(False)
         self.send_brs_checkbox = QCheckBox('BRS')
@@ -615,6 +619,7 @@ class MainWindow(QWidget):
         vbox_layout1.addWidget(self.send_dlc_selector)
         vbox_layout1.addWidget(self.send_eff_checkbox)
         vbox_layout1.addWidget(self.send_rtr_checkbox)
+        vbox_layout1.addWidget(self.send_err_checkbox)
         vbox_layout1.addWidget(self.send_fd_checkbox)
         vbox_layout1.addWidget(self.send_brs_checkbox)
         vbox_layout1.addWidget(self.send_esi_checkbox)
@@ -667,9 +672,9 @@ class MainWindow(QWidget):
         message_model.moveToThread(self.message_model_thread)
         self.message_viewer.setModel(message_model)
         self.message_viewer.setColumnWidth(1, 60)
-        for i in range(2, 7):
+        for i in range(2, 8):
             self.message_viewer.setColumnWidth(i, 40)
-        self.message_viewer.setColumnWidth(8, 60)
+        self.message_viewer.setColumnWidth(9, 60)
 
         # Dialog for configurate bit timing setting.
         self.bit_timing_dialog = BitTimingDialog(self)
@@ -717,6 +722,7 @@ class MainWindow(QWidget):
         header = GSHostFrameHeader(0, self.send_id_spin_box.value(), self.send_dlc_selector.currentIndex(), self.channel_selector.currentIndex(), GSCANFlag(0))
         header.is_extended_id = self.send_eff_checkbox.isChecked()
         header.is_remote_frame = self.send_rtr_checkbox.isChecked()
+        header.is_error_frame = self.send_err_checkbox.isChecked()
         header.is_fd = self.send_fd_checkbox.isEnabled() and self.send_fd_checkbox.isChecked()
         header.is_bitrate_switch = self.send_brs_checkbox.isEnabled() and self.send_brs_checkbox.isChecked()
         header.is_error_state_indicator = self.send_esi_checkbox.isEnabled() and self.send_esi_checkbox.isChecked()
@@ -772,6 +778,7 @@ class MainWindow(QWidget):
             self.send_dlc_selector.setEnabled(False)
             self.send_eff_checkbox.setEnabled(False)
             self.send_rtr_checkbox.setEnabled(False)
+            self.send_err_checkbox.setEnabled(False)
             self.send_fd_checkbox.setEnabled(False)
             self.send_brs_checkbox.setEnabled(False)
             self.send_esi_checkbox.setEnabled(False)
@@ -798,6 +805,7 @@ class MainWindow(QWidget):
             self.send_dlc_selector.setEnabled(False)
             self.send_eff_checkbox.setEnabled(False)
             self.send_rtr_checkbox.setEnabled(False)
+            self.send_err_checkbox.setEnabled(False)
             self.send_fd_checkbox.setEnabled(False)
             self.send_brs_checkbox.setEnabled(False)
             self.send_esi_checkbox.setEnabled(False)
@@ -829,6 +837,7 @@ class MainWindow(QWidget):
             self.send_dlc_selector.setEnabled(False)
             self.send_eff_checkbox.setEnabled(False)
             self.send_rtr_checkbox.setEnabled(False)
+            self.send_err_checkbox.setEnabled(False)
             self.send_fd_checkbox.setEnabled(False)
             self.send_brs_checkbox.setEnabled(False)
             self.send_esi_checkbox.setEnabled(False)
@@ -859,6 +868,7 @@ class MainWindow(QWidget):
             self.send_dlc_selector.setEnabled(True)
             self.send_eff_checkbox.setEnabled(True)
             self.send_rtr_checkbox.setEnabled(True)
+            self.send_err_checkbox.setEnabled(True)
             self.send_fd_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
             self.send_brs_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
             self.send_esi_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)

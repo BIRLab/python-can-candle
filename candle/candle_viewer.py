@@ -539,6 +539,7 @@ class MainWindow(QWidget):
         self.start_button = QPushButton('Start')
         self.start_button.setCheckable(True)
         self.start_button.setEnabled(False)
+        self.version_label = QLabel()
         hbox_layout1.addWidget(self.scan_button)
         hbox_layout1.addWidget(QLabel('Device:'))
         hbox_layout1.addWidget(self.device_selector)
@@ -547,6 +548,7 @@ class MainWindow(QWidget):
         hbox_layout1.addWidget(self.bit_timing_button)
         hbox_layout1.addWidget(self.start_button)
         hbox_layout1.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        hbox_layout1.addWidget(self.version_label)
         hbox_layout2 = QHBoxLayout()
         self.fd_checkbox = QCheckBox('FD')
         self.fd_checkbox.setEnabled(False)
@@ -560,6 +562,8 @@ class MainWindow(QWidget):
         self.one_shot_checkbox.setEnabled(False)
         self.bit_error_reporting_checkbox = QCheckBox('Bit Error Reporting')
         self.bit_error_reporting_checkbox.setEnabled(False)
+        self.termination_checkbox = QCheckBox('Termination')
+        self.termination_checkbox.setEnabled(False)
         clear_button = QPushButton('Clear')
         hbox_layout2.addWidget(self.fd_checkbox)
         hbox_layout2.addWidget(self.loopback_checkbox)
@@ -567,6 +571,7 @@ class MainWindow(QWidget):
         hbox_layout2.addWidget(self.triple_sample_checkbox)
         hbox_layout2.addWidget(self.one_shot_checkbox)
         hbox_layout2.addWidget(self.bit_error_reporting_checkbox)
+        hbox_layout2.addWidget(self.termination_checkbox)
         hbox_layout2.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         hbox_layout2.addWidget(clear_button)
         self.message_viewer = QTableView()
@@ -677,6 +682,7 @@ class MainWindow(QWidget):
         message_model.rowInserted.connect(self.handle_row_inserted)
         self.polling_thread.finished.connect(self.candle_manager.cleanup)
         clear_button.clicked.connect(message_model.clear_message)
+        self.termination_checkbox.toggled.connect(self.handle_termination_checked)
 
         # Start thread and timer.
         self.polling_thread.start()
@@ -726,6 +732,10 @@ class MainWindow(QWidget):
         if checked:
             self.send_dlc_selector.addItems([str(i) for i in DLC2LEN[9:]])
 
+    @Slot(bool)
+    def handle_termination_checked(self, checked: bool) -> None:
+        self.candle_manager.channel.termination = checked
+
     @Slot(CandleManagerState)
     def handle_state_transition(self, _from_state: CandleManagerState, to_state: CandleManagerState) -> None:
         if to_state == CandleManagerState.DeviceSelection:
@@ -739,6 +749,7 @@ class MainWindow(QWidget):
             self.triple_sample_checkbox.setEnabled(False)
             self.one_shot_checkbox.setEnabled(False)
             self.bit_error_reporting_checkbox.setEnabled(False)
+            self.termination_checkbox.setEnabled(False)
             self.send_id_spin_box.setEnabled(False)
             self.send_dlc_selector.setEnabled(False)
             self.send_eff_checkbox.setEnabled(False)
@@ -752,6 +763,7 @@ class MainWindow(QWidget):
             self.send_repeat_button.setChecked(False)
             self.cycle_time_spin_box.setEnabled(False)
             self.random_data_button.setEnabled(False)
+            self.version_label.clear()
         if to_state == CandleManagerState.ChannelSelection:
             self.device_selector.setEnabled(True)
             self.channel_selector.setEnabled(True)
@@ -763,6 +775,7 @@ class MainWindow(QWidget):
             self.triple_sample_checkbox.setEnabled(False)
             self.one_shot_checkbox.setEnabled(False)
             self.bit_error_reporting_checkbox.setEnabled(False)
+            self.termination_checkbox.setEnabled(False)
             self.send_id_spin_box.setEnabled(False)
             self.send_dlc_selector.setEnabled(False)
             self.send_eff_checkbox.setEnabled(False)
@@ -778,6 +791,7 @@ class MainWindow(QWidget):
             self.random_data_button.setEnabled(False)
             self.channel_selector.clear()
             self.channel_selector.addItems([str(i) for i in range(len(self.candle_manager.interface))])    # type: ignore[arg-type]
+            self.version_label.setText(f'HW: {self.candle_manager.interface.hardware_version}, SW: {self.candle_manager.interface.software_version}')
         if to_state == CandleManagerState.Configuration:
             self.device_selector.setEnabled(True)
             self.channel_selector.setEnabled(True)
@@ -790,6 +804,7 @@ class MainWindow(QWidget):
                 self.triple_sample_checkbox.setEnabled(self.candle_manager.channel.is_triple_sample_supported)
                 self.one_shot_checkbox.setEnabled(self.candle_manager.channel.is_one_shot_supported)
                 self.bit_error_reporting_checkbox.setEnabled(self.candle_manager.channel.is_bit_error_reporting_supported)
+                self.termination_checkbox.setEnabled(self.candle_manager.channel.is_termination_supported)
             except AttributeError:
                 pass
             self.send_id_spin_box.setEnabled(False)
@@ -821,6 +836,7 @@ class MainWindow(QWidget):
             self.triple_sample_checkbox.setEnabled(False)
             self.one_shot_checkbox.setEnabled(False)
             self.bit_error_reporting_checkbox.setEnabled(False)
+            self.termination_checkbox.setEnabled(False)
             self.send_id_spin_box.setEnabled(True)
             self.send_dlc_selector.setEnabled(True)
             self.send_eff_checkbox.setEnabled(True)

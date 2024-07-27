@@ -16,7 +16,8 @@ class CandleBus(can.bus.BusABC):
         is_one_shot_supported: bool
         is_hardware_timestamp_supported: bool
         is_bit_error_reporting_supported: bool
-        is_get_bit_error_counter_supported: bool
+        is_get_state_supported: bool
+        is_termination_supported: bool
         is_quirk: bool
         clock_frequency: int
         tseg1_min: int

@@ -438,6 +438,10 @@ class CandleChannel:
         return bool(self._bt_const.feature & GSCANFeature.GET_STATE)
 
     @property
+    def is_termination_supported(self) -> bool:
+        return bool(self._bt_const.feature & GSCANFeature.TERMINATION)
+
+    @property
     def is_quirk(self) -> bool:
         return bool(self._bt_const.feature & GSCANFeature.REQ_USB_QUIRK_LPC546XX)
 

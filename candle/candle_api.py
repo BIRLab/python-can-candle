@@ -667,6 +667,12 @@ class CandleChannel:
             rx_size += 4
 
         raw_frame = bytes(self._usb_device.read(self._endpoint_in, rx_size, timeout_ms))
+
+        # In the case of can fd data frames, the size of the host frame will be slightly
+        # more than 64 bytes (USB FS packet size) and will be truncated in some backends.
+        if rx_size > 64 and len(raw_frame) == 64:
+            raw_frame += bytes(self._usb_device.read(self._endpoint_in, rx_size - 64, timeout_ms))
+
         return GSHostFrame.unpack(raw_frame, self.is_hardware_timestamp_supported)
 
     def write(self, host_frame: GSHostFrame, timeout_ms: Optional[int] = None) -> None:

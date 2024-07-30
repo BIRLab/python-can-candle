@@ -6,6 +6,7 @@ from typing import Optional, List, Union, Any, cast
 from enum import Enum, auto
 from functools import partial
 from random import randrange
+import csv
 from PySide6.QtCore import (
     Signal,
     Slot,
@@ -45,7 +46,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
     QHeaderView,
-    QTableView
+    QTableView,
+    QFileDialog
 )
 from candle.candle_api import (
     CandleDevice,
@@ -603,6 +605,7 @@ class MainWindow(QWidget):
         self.auto_scroll_checkbox = QCheckBox('Auto Scroll')
         self.auto_scroll_checkbox.setChecked(True)
         clear_button = QPushButton('Clear')
+        export_button = QPushButton('Export')
         hbox_layout2.addWidget(self.fd_checkbox)
         hbox_layout2.addWidget(self.loopback_checkbox)
         hbox_layout2.addWidget(self.listen_only_checkbox)
@@ -613,6 +616,7 @@ class MainWindow(QWidget):
         hbox_layout2.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         hbox_layout2.addWidget(self.auto_scroll_checkbox)
         hbox_layout2.addWidget(clear_button)
+        hbox_layout2.addWidget(export_button)
         self.message_viewer = QTableView()
         self.message_viewer.horizontalHeader().setStretchLastSection(True)
         hbox_layout3 = QHBoxLayout()
@@ -692,9 +696,9 @@ class MainWindow(QWidget):
 
         # Message model for better performance.
         self.message_model_thread = QThread(self)
-        message_model = MessageTableModel()
-        message_model.moveToThread(self.message_model_thread)
-        self.message_viewer.setModel(message_model)
+        self.message_model = MessageTableModel()
+        self.message_model.moveToThread(self.message_model_thread)
+        self.message_viewer.setModel(self.message_model)
 
         # Dialog for configurate bit timing setting.
         self.bit_timing_dialog = BitTimingDialog(self)
@@ -705,7 +709,7 @@ class MainWindow(QWidget):
         self.candle_manager.scanResult.connect(self.handle_scan_result)
         self.device_selector.currentIndexChanged.connect(self.candle_manager.select_device)
         self.channel_selector.currentIndexChanged.connect(self.candle_manager.select_channel)
-        self.candle_manager.messageReceived.connect(message_model.handle_message)
+        self.candle_manager.messageReceived.connect(self.message_model.handle_message)
         self.candle_manager.exceptionOccurred.connect(self.handle_device_exception)
         self.start_button.toggled.connect(self.handle_start)
         self.bit_timing_dialog.setBitTiming.connect(self.candle_manager.set_bit_timing)
@@ -720,9 +724,10 @@ class MainWindow(QWidget):
         self.send_repeat_button.toggled.connect(self.send_message_repeat)
         self.send_eff_checkbox.toggled.connect(self.handle_extended_id_checked)
         self.random_data_button.clicked.connect(self.input_panel.random)
-        message_model.rowInserted.connect(self.handle_row_inserted)
+        self.message_model.rowInserted.connect(self.handle_row_inserted)
         self.polling_thread.finished.connect(self.candle_manager.cleanup)
-        clear_button.clicked.connect(message_model.clear_message)
+        clear_button.clicked.connect(self.message_model.clear_message)
+        export_button.clicked.connect(self.handle_export)
         self.termination_checkbox.toggled.connect(self.candle_manager.set_termination)
         self.candle_manager.selectDeviceResult.connect(self.handle_select_device_result)
 
@@ -917,6 +922,16 @@ class MainWindow(QWidget):
         message_box = QMessageBox(self)
         message_box.setText(error)
         message_box.open()
+
+    @Slot()
+    def handle_export(self) -> None:
+        file_name = QFileDialog.getSaveFileName(self, filter="CSV (*.csv)")[0]
+        if file_name:
+            with open(file_name, 'w', newline='') as csv_file:
+                csv_writer = csv.writer(csv_file)
+                csv_writer.writerow(self.message_model.header)
+                for i in range(self.message_model.rowCount()):
+                    csv_writer.writerow([self.message_model.data(self.message_model.index(i, j)) for j in range(self.message_model.columnCount())])
 
     def closeEvent(self, event: QCloseEvent):
         self.polling_thread.requestInterruption()

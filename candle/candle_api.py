@@ -839,5 +839,8 @@ class CandleDevice:
                     except ValueError:
                         # A permission issue occurs when the device is occupied.
                         continue
+                    finally:
+                        # Avoid occupying the USB device.
+                        usb.util.dispose_resources(udev)
                     cls.devices_ref.add(dev)
                     yield dev

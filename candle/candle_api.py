@@ -106,7 +106,7 @@ class GSCANFeature(IntFlag):
 
 
 class GSCANMode(IntFlag):
-    NORMAL = bit(0)
+    NORMAL = 0
     LISTEN_ONLY = bit(0)
     LOOP_BACK = bit(1)
     TRIPLE_SAMPLE = bit(2)
@@ -822,17 +822,18 @@ class CandleDevice:
 
         # Find and create device.
         for di in device_identifiers:
-            udev = usb.core.find(
+            for udev in usb.core.find(
+                find_all=True,
                 backend=backend,
                 idVendor=di.idVendor,
                 idProduct=di.idProduct,
                 custom_match=matcher
-            )
-            if udev is not None:
-                try:
-                    dev = CandleDevice(udev)
-                except ValueError:
-                    # A permission issue occurs when the device is occupied.
-                    continue
-                cls.devices_ref.add(dev)
-                yield dev
+            ):
+                if udev is not None:
+                    try:
+                        dev = CandleDevice(udev)
+                    except ValueError:
+                        # A permission issue occurs when the device is occupied.
+                        continue
+                    cls.devices_ref.add(dev)
+                    yield dev

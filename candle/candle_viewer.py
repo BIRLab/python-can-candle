@@ -303,7 +303,7 @@ class MessageTableModel(QAbstractTableModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self.mutex = QMutexLocker(QMutex())
-        self.header = ('Timestamp', 'Rx/Tx', 'EFF', 'RTR', 'ERR', 'FD', 'BRS', 'ESI', 'CAN ID', 'DLC', 'Data')
+        self.header = ('Timestamp', 'CAN ID', 'Rx/Tx', 'Type', 'Length', 'Data')
         self.message_buffer: List[GSHostFrame] = []
         self.message_pending: List[GSHostFrame] = []
         self.monospace_font = QFont('Monospace', 10)
@@ -352,30 +352,29 @@ class MessageTableModel(QAbstractTableModel):
             if column == 0:
                 return str(message.timestamp)
             if column == 1:
-                return 'Rx' if message.header.is_rx else 'Tx'
-            if column == 2:
-                return 'Y' if message.header.is_extended_id else 'N'
-            if column == 3:
-                return 'Y' if message.header.is_remote_frame else 'N'
-            if column == 4:
-                return 'Y' if message.header.is_error_frame else 'N'
-            if column == 5:
-                return 'Y' if message.header.is_fd else 'N'
-            if column == 6:
-                return 'Y' if message.header.is_bitrate_switch else 'N'
-            if column == 7:
-                return 'Y' if message.header.is_error_state_indicator else 'N'
-            if column == 8:
                 return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
-            if column == 9:
+            if column == 2:
+                return 'Rx' if message.header.is_rx else 'Tx'
+            if column == 3:
+                if message.header.is_error_frame:
+                    return 'Error'
+                if message.header.is_remote_frame:
+                    return 'Remote'
+                if message.header.is_fd:
+                    fd_flags = ['FD']
+                    if message.header.is_bitrate_switch:
+                        fd_flags.append('BRS')
+                    if message.header.is_error_state_indicator:
+                        fd_flags.append('ESI')
+                    return ' '.join(fd_flags)
+                else:
+                    return 'Data'
+            if column == 4:
                 return str(message.header.data_length)
-            if column == 10:
+            if column == 5:
                 return ' '.join(f'{i:02X}' for i in message.data)
         if role == Qt.ItemDataRole.FontRole:
             return self.monospace_font
-        if role == Qt.ItemDataRole.TextAlignmentRole:
-            if 0 < index.column() < 10:
-                return Qt.AlignmentFlag.AlignCenter
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
@@ -696,10 +695,6 @@ class MainWindow(QWidget):
         message_model = MessageTableModel()
         message_model.moveToThread(self.message_model_thread)
         self.message_viewer.setModel(message_model)
-        self.message_viewer.setColumnWidth(1, 60)
-        for i in range(2, 8):
-            self.message_viewer.setColumnWidth(i, 40)
-        self.message_viewer.setColumnWidth(9, 60)
 
         # Dialog for configurate bit timing setting.
         self.bit_timing_dialog = BitTimingDialog(self)
@@ -718,7 +713,6 @@ class MainWindow(QWidget):
         self.candle_manager.channelInfo.connect(self.bit_timing_dialog.update_channel_info)
         self.bit_timing_button.clicked.connect(self.bit_timing_dialog.exec)
         self.send_dlc_selector.currentIndexChanged.connect(self.input_panel.set_dlc)
-        self.send_rtr_checkbox.toggled.connect(self.handle_remote_frame_checked)
         self.send_once_button.clicked.connect(self.send_message)
         self.send_fd_checkbox.toggled.connect(self.handle_send_fd_checked)
         self.cycle_time_spin_box.valueChanged.connect(lambda v: self.send_timer.setInterval(v))
@@ -767,13 +761,6 @@ class MainWindow(QWidget):
             self.send_id_spin_box.setMaximum((1 << 29) - 1)
         else:
             self.send_id_spin_box.setMaximum((1 << 11) - 1)
-
-    @Slot(bool)
-    def handle_remote_frame_checked(self, checked: bool) -> None:
-        if checked:
-            self.input_panel.setEnabled(False)
-        else:
-            self.input_panel.setEnabled(True)
 
     @Slot(bool)
     def handle_send_fd_checked(self, checked: bool) -> None:
@@ -891,7 +878,7 @@ class MainWindow(QWidget):
             self.send_fd_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
             self.send_brs_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
             self.send_esi_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
-            self.input_panel.setEnabled(not self.send_rtr_checkbox.isChecked())
+            self.input_panel.setEnabled(True)
             self.send_once_button.setEnabled(True)
             self.send_repeat_button.setEnabled(True)
             self.send_repeat_button.setChecked(False)

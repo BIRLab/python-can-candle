@@ -193,6 +193,10 @@ class GSHostFrameHeader:
             return False
         if not self.is_fd and self.can_dlc > 8:
             return False
+        if self.is_error_frame and self.can_dlc != 8:
+            return False
+        if self.is_remote_frame and self.can_dlc > 0:
+            return False
         return True
 
     @property

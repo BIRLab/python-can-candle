@@ -9,7 +9,7 @@ authors = [
   { name="Yu He", email="chinaheyu@outlook.com" },
 ]
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 license = {file = "LICENSE"}
 keywords = ["gs_usb", "can", "candleLight"]
 dynamic = ["version"]

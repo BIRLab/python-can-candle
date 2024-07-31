@@ -379,13 +379,99 @@ class MessageTableModel(QAbstractTableModel):
                     if message.header.can_id & (1 << 0):
                         error_flags.append('TX timeout')
                     if message.header.can_id & (1 << 1):
-                        error_flags.append('lost arbitration')
+                        error_flags.append(f'arbitration lost in bit {message.data[0]}')
                     if message.header.can_id & (1 << 2):
                         error_flags.append('controller problems')
+                        if message.data[1] & (1 << 0):
+                            error_flags.append('RX buffer overflow')
+                        if message.data[1] & (1 << 1):
+                            error_flags.append('TX buffer overflow')
+                        if message.data[1] & (1 << 2):
+                            error_flags.append('reached warning level for RX errors')
+                        if message.data[1] & (1 << 3):
+                            error_flags.append('reached warning level for TX errors')
+                        if message.data[1] & (1 << 4):
+                            error_flags.append('reached error passive status RX')
+                        if message.data[1] & (1 << 5):
+                            error_flags.append('reached error passive status TX')
+                        if message.data[1] & (1 << 6):
+                            error_flags.append('recovered to error active state')
                     if message.header.can_id & (1 << 3):
                         error_flags.append('protocol violations')
+                        if message.data[2] & (1 << 0):
+                            error_flags.append('single bit error')
+                        if message.data[2] & (1 << 1):
+                            error_flags.append('frame format error')
+                        if message.data[2] & (1 << 2):
+                            error_flags.append('bit stuffing error')
+                        if message.data[2] & (1 << 3):
+                            error_flags.append('unable to send dominant bit')
+                        if message.data[2] & (1 << 4):
+                            error_flags.append('unable to send recessive bit')
+                        if message.data[2] & (1 << 5):
+                            error_flags.append('bus overload')
+                        if message.data[2] & (1 << 6):
+                            error_flags.append('active error announcement')
+                        if message.data[2] & (1 << 7):
+                            error_flags.append('error occurred on transmission')
+                        if message.data[3] == 0x03:
+                            error_flags.append('start of frame')
+                        if message.data[3] == 0x02:
+                            error_flags.append('ID bits 28 - 21 (SFF: 10 - 3)')
+                        if message.data[3] == 0x06:
+                            error_flags.append('ID bits 20 - 18 (SFF: 2 - 0 )')
+                        if message.data[3] == 0x04:
+                            error_flags.append('substitute RTR (SFF: RTR)')
+                        if message.data[3] == 0x05:
+                            error_flags.append('identifier extension')
+                        if message.data[3] == 0x07:
+                            error_flags.append('ID bits 17-13')
+                        if message.data[3] == 0x0F:
+                            error_flags.append('ID bits 12-5')
+                        if message.data[3] == 0x0E:
+                            error_flags.append('ID bits 4-0')
+                        if message.data[3] == 0x0C:
+                            error_flags.append('RTR')
+                        if message.data[3] == 0x0D:
+                            error_flags.append('reserved bit 1')
+                        if message.data[3] == 0x09:
+                            error_flags.append('reserved bit 0')
+                        if message.data[3] == 0x0B:
+                            error_flags.append('data length code')
+                        if message.data[3] == 0x0A:
+                            error_flags.append('data section')
+                        if message.data[3] == 0x08:
+                            error_flags.append('CRC sequence')
+                        if message.data[3] == 0x18:
+                            error_flags.append('CRC delimiter')
+                        if message.data[3] == 0x19:
+                            error_flags.append('ACK slot')
+                        if message.data[3] == 0x1B:
+                            error_flags.append('ACK delimiter')
+                        if message.data[3] == 0x1A:
+                            error_flags.append('end of frame')
+                        if message.data[3] == 0x12:
+                            error_flags.append('intermission')
                     if message.header.can_id & (1 << 4):
                         error_flags.append('transceiver status')
+                        if message.data[4] == 0x04:
+                            error_flags.append('CANH no wire')
+                        if message.data[4] == 0x05:
+                            error_flags.append('CANH short to BAT')
+                        if message.data[4] == 0x06:
+                            error_flags.append('CANH short to VCC')
+                        if message.data[4] == 0x07:
+                            error_flags.append('CANH short to GND')
+                        if message.data[4] == 0x40:
+                            error_flags.append('CANL no wire')
+                        if message.data[4] == 0x50:
+                            error_flags.append('CANL short to BAT')
+                        if message.data[4] == 0x60:
+                            error_flags.append('CANL short to VCC')
+                        if message.data[4] == 0x70:
+                            error_flags.append('CANL short to GND')
+                        if message.data[4] == 0x80:
+                            error_flags.append('CANL short to CANH')
                     if message.header.can_id & (1 << 5):
                         error_flags.append('received no ACK on transmission')
                     if message.header.can_id & (1 << 6):
@@ -394,6 +480,8 @@ class MessageTableModel(QAbstractTableModel):
                         error_flags.append('bus error')
                     if message.header.can_id & (1 << 8):
                         error_flags.append('controller restarted')
+                    error_flags.append(f'TX error count: {message.data[6]}')
+                    error_flags.append(f'RX error count: {message.data[7]}')
                     return ' '.join(f'{i:02X}' for i in message.data) + ' (' + ', '.join(error_flags) + ')'
                 else:
                     return ' '.join(f'{i:02X}' for i in message.data)

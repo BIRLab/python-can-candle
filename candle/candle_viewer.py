@@ -374,7 +374,29 @@ class MessageTableModel(QAbstractTableModel):
             if column == 4:
                 return str(message.header.data_length)
             if column == 5:
-                return ' '.join(f'{i:02X}' for i in message.data)
+                if message.header.is_error_frame:
+                    error_flags = []
+                    if message.header.can_id & (1 << 0):
+                        error_flags.append('TX timeout')
+                    if message.header.can_id & (1 << 1):
+                        error_flags.append('lost arbitration')
+                    if message.header.can_id & (1 << 2):
+                        error_flags.append('controller problems')
+                    if message.header.can_id & (1 << 3):
+                        error_flags.append('protocol violations')
+                    if message.header.can_id & (1 << 4):
+                        error_flags.append('transceiver status')
+                    if message.header.can_id & (1 << 5):
+                        error_flags.append('received no ACK on transmission')
+                    if message.header.can_id & (1 << 6):
+                        error_flags.append('bus off')
+                    if message.header.can_id & (1 << 7):
+                        error_flags.append('bus error')
+                    if message.header.can_id & (1 << 8):
+                        error_flags.append('controller restarted')
+                    return ' '.join(f'{i:02X}' for i in message.data) + ' (' + ', '.join(error_flags) + ')'
+                else:
+                    return ' '.join(f'{i:02X}' for i in message.data)
         if role == Qt.ItemDataRole.FontRole:
             return self.monospace_font
         return None

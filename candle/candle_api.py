@@ -632,7 +632,7 @@ class CandleChannel:
             GSUsbRequest.SET_TERMINATION,
             self._channel,
             0,
-            gs_device_bit_timing_struct.pack(*astuple(termination_state)),
+            gs_device_termination_state_struct.pack(*astuple(termination_state)),
             1000
         )
 

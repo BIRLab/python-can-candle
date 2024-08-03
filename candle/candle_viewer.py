@@ -952,6 +952,8 @@ class MainWindow(QWidget):
                 self.one_shot_checkbox.setEnabled(self.candle_manager.channel.is_one_shot_supported)
                 self.bit_error_reporting_checkbox.setEnabled(self.candle_manager.channel.is_bit_error_reporting_supported)
                 self.termination_checkbox.setEnabled(self.candle_manager.channel.is_termination_supported)
+                if self.candle_manager.channel.is_termination_supported:
+                    self.termination_checkbox.setChecked(self.candle_manager.channel.termination)
             except AttributeError:
                 pass
             self.send_id_spin_box.setEnabled(False)

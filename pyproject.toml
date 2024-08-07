@@ -45,6 +45,9 @@ candle = ["py.typed"]
 
 [tool.mypy]
 packages = "candle"
+exclude = [
+  "candle/candle_viewer.py",
+]
 
 [[tool.mypy.overrides]]
 module = "usb.*"

@@ -301,6 +301,7 @@ class InputPanel(QWidget):
 
 class MessageTableModel(QAbstractTableModel):
     rowInserted = Signal(int, int)
+    exportFinished = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -315,6 +316,15 @@ class MessageTableModel(QAbstractTableModel):
         self.flush_timer.timeout.connect(self.flush_message)
         self.flush_timer.setInterval(50)
         self.flush_timer.start()
+
+    @Slot(str)
+    def export(self, file_path: str) -> None:
+        with open(file_path, 'w', newline='') as csv_file:
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(self.header)
+            for i in range(self.rowCount()):
+                csv_writer.writerow([self.data(self.index(i, j)) for j in range(self.columnCount())])
+        self.exportFinished.emit()
 
     @Slot(GSHostFrame)
     def handle_message(self, message: GSHostFrame) -> None:
@@ -354,7 +364,7 @@ class MessageTableModel(QAbstractTableModel):
             if column == 0:
                 return str(message.timestamp)
             if column == 1:
-                return f'{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'{message.header.arbitration_id:03X}'
+                return f'0x{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'0x{message.header.arbitration_id:03X}'
             if column == 2:
                 return 'Rx' if message.header.is_rx else 'Tx'
             if column == 3:
@@ -669,6 +679,8 @@ class BitTimingDialog(QDialog):
 
 
 class MainWindow(QWidget):
+    export = Signal(str)
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle('Candle Viewer')
@@ -840,6 +852,8 @@ class MainWindow(QWidget):
         export_button.clicked.connect(self.handle_export)
         self.termination_checkbox.toggled.connect(self.candle_manager.set_termination)
         self.candle_manager.selectDeviceResult.connect(self.handle_select_device_result)
+        self.export.connect(self.message_model.export)
+        self.message_model.exportFinished.connect(self.handle_export_finished)
 
         # Start thread and timer.
         self.polling_thread.start()
@@ -1038,12 +1052,15 @@ class MainWindow(QWidget):
     @Slot()
     def handle_export(self) -> None:
         file_name = QFileDialog.getSaveFileName(self, filter="CSV (*.csv)")[0]
-        if file_name:
-            with open(file_name, 'w', newline='') as csv_file:
-                csv_writer = csv.writer(csv_file)
-                csv_writer.writerow(self.message_model.header)
-                for i in range(self.message_model.rowCount()):
-                    csv_writer.writerow([self.message_model.data(self.message_model.index(i, j)) for j in range(self.message_model.columnCount())])
+        if not file_name.endswith('.csv'):
+            file_name += '.csv'
+        self.export.emit(file_name)
+
+    @Slot()
+    def handle_export_finished(self) -> None:
+        message_box = QMessageBox(self)
+        message_box.setText('Export Finished')
+        message_box.open()
 
     def closeEvent(self, event: QCloseEvent):
         self.polling_thread.requestInterruption()

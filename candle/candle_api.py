@@ -203,7 +203,7 @@ class GSHostFrameHeader:
     def arbitration_id(self) -> int:
         if self.is_extended_id:
             return self.can_id & GSCANIDFlag.EFF_MASK
-        return self.can_id & GSCANIDFlag.SFF_MASK
+        return int(self.can_id & GSCANIDFlag.SFF_MASK)
 
     @property
     def data_length(self) -> int:

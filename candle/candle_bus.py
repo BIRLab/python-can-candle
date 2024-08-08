@@ -48,7 +48,7 @@ class CandleBus(can.bus.BusABC):
                  data_bitrate: int = 5000000, data_sample_point: float = 87.5,
                  fd: bool = False, loopback: bool = False, listen_only: bool = False,
                  triple_sample: bool = False, one_shot: bool = False, bit_error_reporting: bool = False,
-                 vid: Optional[int] = None, pid: Optional[int] = None,
+                 termination: Optional[bool] = None, vid: Optional[int] = None, pid: Optional[int] = None,
                  manufacture: Optional[str] = None, product: Optional[str] = None,
                  serial_number: Optional[str] = None, **kwargs) -> None:
         try:
@@ -59,6 +59,13 @@ class CandleBus(can.bus.BusABC):
         # Get the channel.
         self._channel = self._device[0][channel]
         self.channel_info = f'[{self._device}]: channel {self._channel.index}'
+
+        # Reset channel.
+        self._channel.close()
+
+        # Set termination.
+        if termination is not None:
+            self._channel.termination = termination
 
         # Set bit timing.
         props_seg = 1

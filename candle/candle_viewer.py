@@ -18,7 +18,8 @@ from PySide6.QtCore import (
     QMutexLocker,
     QAbstractTableModel,
     QModelIndex,
-    QPersistentModelIndex
+    QPersistentModelIndex,
+    QCommandLineParser
 )
 from PySide6.QtGui import (
     QFocusEvent,
@@ -61,6 +62,7 @@ from candle.candle_api import (
     GSCANFeature,
     DLC2LEN
 )
+from candle import __version__
 
 
 class CandleManagerState(Enum):
@@ -1075,6 +1077,15 @@ class MainWindow(QWidget):
 def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
+    app.setApplicationName("candle_viewer")
+    app.setApplicationVersion(__version__)
+
+    parser = QCommandLineParser()
+    parser.setApplicationDescription("Candle Viewer")
+    parser.addHelpOption()
+    parser.addVersionOption()
+    parser.process(app)
+
     main_window = MainWindow()
     main_window.show()
     return app.exec()

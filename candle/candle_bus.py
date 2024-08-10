@@ -178,6 +178,12 @@ class CandleBus(can.bus.BusABC):
         super().shutdown()
 
     @property
+    def protocol(self) -> can.CanProtocol:
+        if self._channel.is_fd_supported:
+            return can.CanProtocol.CAN_FD
+        return can.CanProtocol.CAN_20
+
+    @property
     def device_state(self) -> GSDeviceState:
         return self._channel.state
 

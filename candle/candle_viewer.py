@@ -213,8 +213,8 @@ class CandleManager(QObject):
                     elapsed_timer = QElapsedTimer()
                     elapsed_timer.start()
                     while elapsed_timer.elapsed() < self.polling_timer.interval():
-                        frame = self.channel.read(1)
-                        if frame is not None:
+                        self.interface.polling(1)
+                        while (frame := self.channel.read()) is not None:
                             self.messageReceived.emit(frame)
                 except usb.core.USBTimeoutError:
                     pass
@@ -281,7 +281,6 @@ class InputPanel(QWidget):
                 line_edit.setEnabled(True)
             else:
                 line_edit.setEnabled(False)
-                line_edit.setText('00')
 
     @Slot()
     def random(self) -> None:

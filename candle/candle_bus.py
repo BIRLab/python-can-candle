@@ -130,10 +130,12 @@ class CandleBus(can.bus.BusABC):
         # Do not set timeout as None or zero here to avoid blocking.
         timeout_ms = round(timeout * 1000) if timeout else 1
 
-        try:
-            frame = self._channel.read(timeout_ms)
-        except usb.core.USBTimeoutError:
-            return None, False
+        frame = self._channel.read()
+
+        if frame is None:
+            self._device.polling(timeout_ms)
+            frame = self._channel.read()
+
         if frame is not None:
             msg = can.Message(
                 timestamp=frame.timestamp,
@@ -170,7 +172,7 @@ class CandleBus(can.bus.BusABC):
 
         try:
             self._channel.write(GSHostFrame(hfh, msg.data, round(msg.timestamp * 1e6)), round(timeout * 1000))
-        except usb.core.USBError as exc:
+        except TimeoutError as exc:
             raise can.CanOperationError("The message could not be sent") from exc
 
     def shutdown(self):

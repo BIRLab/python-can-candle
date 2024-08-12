@@ -131,9 +131,17 @@ channel.write(
     )
 )
 
-# Receive a frame.
-frame = channel.read()
-print(frame.data)
+try:
+    while True:
+        # Polling message.
+        device.polling()
+    
+        # Receive a frame.
+        frame = channel.read()
+        if frame is not None:
+            print(frame.data)
+except KeyboardInterrupt:
+    pass
 
 # Close the channel.
 channel.close()

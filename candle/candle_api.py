@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from weakref import WeakSet
+import queue
+from weakref import WeakSet, WeakValueDictionary
 import usb
 import usb.backend
 from enum import IntEnum, IntFlag
@@ -369,12 +370,11 @@ class GSHostFrame:
 
 
 class CandleChannel:
-    def __init__(self, parent: CandleInterface, usb_device: usb.core.Device, channel: int, endpoint_in: int, endpoint_out: int) -> None:
+    def __init__(self, parent: CandleInterface, usb_device: usb.core.Device, channel: int) -> None:
+        self._message_queue: queue.Queue[GSHostFrame] = queue.Queue()
         self._parent = parent
         self._usb_device = usb_device
         self._channel = channel
-        self._endpoint_in = endpoint_in
-        self._endpoint_out = endpoint_out
 
         self._bt_const: GSDeviceBTConstExtended = GSDeviceBTConstExtended(
             *gs_device_bt_const_struct.unpack(
@@ -651,35 +651,21 @@ class CandleChannel:
             )
         )
 
-    @property
-    def software_version(self) -> int:
-        return self._parent.software_version
-
-    @property
-    def hardware_version(self) -> int:
-        return self._parent.hardware_version
-
     def read(self, timeout_ms: Optional[int] = None) -> Optional[GSHostFrame]:
-        rx_size = gs_host_frame_header_struct.size
-
-        if self.is_fd_supported:
-            rx_size += 64
+        if timeout_ms is None:
+            try:
+                frame = self._message_queue.get_nowait()
+            except queue.Empty:
+                return None
         else:
-            rx_size += 8
-
-        if self.is_hardware_timestamp_supported:
-            rx_size += 4
-
-        raw_frame = bytes(self._usb_device.read(self._endpoint_in, rx_size, timeout_ms))
-
-        # In the case of can fd data frames, the size of the host frame will be slightly
-        # more than 64 bytes (USB FS packet size) and will be truncated in some backends.
-        if rx_size > 64 and len(raw_frame) == 64:
-            raw_frame += bytes(self._usb_device.read(self._endpoint_in, rx_size - 64, timeout_ms))
-
-        return GSHostFrame.unpack(raw_frame, self.is_hardware_timestamp_supported)
+            try:
+                frame = self._message_queue.get(timeout=timeout_ms / 1000)
+            except queue.Empty as e:
+                raise TimeoutError('Read timeout') from e
+        return frame
 
     def write(self, host_frame: GSHostFrame, timeout_ms: Optional[int] = None) -> None:
+        assert host_frame.header.channel == self._channel
 
         # If the device does not have CAN FD enabled, but somehow receives a CAN FD Frame, drop it.
         if host_frame.header.is_fd and not self._flags & GSCANMode.FD:
@@ -689,14 +675,43 @@ class CandleChannel:
         if not host_frame.valid:
             return
 
-        self._usb_device.write(self._endpoint_out, host_frame.pack(self.is_quirk), timeout_ms)
+        try:
+            self._usb_device.write(self._parent._endpoint_out, host_frame.pack(self.is_quirk), timeout_ms)
+        except usb.core.USBTimeoutError as e:
+            raise TimeoutError('Write timeout') from e
 
 
 class CandleInterface:
-    def __init__(self, parent: CandleDevice, usb_device: usb.core.Device, interface_number: int) -> None:
+    def __init__(self, parent: CandleDevice, usb_device: usb.core.Device, interface_number: int, endpoint_in: Optional[int] = None, endpoint_out: Optional[int] = None, alternate_setting = 0) -> None:
+        self._channel_ref: WeakValueDictionary[int, CandleChannel] = WeakValueDictionary()
+        self._size_rx = 0
+        self._hardware_timestamp = False
         self._parent = parent
         self._usb_device = usb_device
         self._interface_number = interface_number
+
+        # Find endpoint IN.
+        if endpoint_in is None:
+            endpoint_in_description: usb.core.Endpoint = usb.util.find_descriptor(
+                self._usb_device.get_active_configuration()[self._interface_number, alternate_setting],
+                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
+            )
+            if endpoint_in_description is None:
+                raise IndexError('Can not find a suitable IN endpoint, maybe specify it manually.')
+            endpoint_in = endpoint_in_description.bEndpointAddress
+
+        # Find endpoint OUT.
+        if endpoint_out is None:
+            endpoint_out_description: usb.core.Endpoint = usb.util.find_descriptor(
+                self._usb_device.get_active_configuration()[self._interface_number, alternate_setting],
+                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+            )
+            if endpoint_out_description is None:
+                raise IndexError('Can not find a suitable OUT endpoint, maybe specify it manually.')
+            endpoint_out = endpoint_out_description.bEndpointAddress
+
+        self._endpoint_in = endpoint_in
+        self._endpoint_out = endpoint_out
 
         self._usb_device.ctrl_transfer(
             usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_INTERFACE,
@@ -731,31 +746,54 @@ class CandleInterface:
     def __len__(self) -> int:
         return self._device_configuration.icount + 1
 
-    def __getitem__(self, channel: int, endpoint_in: Optional[int] = None, endpoint_out: Optional[int] = None) -> CandleChannel:
-        # Alternate interface setting is assumed to be 0.
-        alternate_setting = 0
+    def __getitem__(self, channel: int) -> CandleChannel:
+        if channel > self._device_configuration.icount:
+            raise IndexError('Channel index out of range')
 
-        # Find endpoint IN.
-        if endpoint_in is None:
-            endpoint_in_description: usb.core.Endpoint = usb.util.find_descriptor(
-                self._usb_device.get_active_configuration()[self._interface_number, alternate_setting],
-                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
-            )
-            if endpoint_in_description is None:
-                raise IndexError('Can not find a suitable IN endpoint, maybe specify it manually.')
-            endpoint_in = endpoint_in_description.bEndpointAddress
+        try:
+            channel_obj = self._channel_ref[channel]
+        except KeyError:
+            # Create channel.
+            channel_obj = CandleChannel(self, self._usb_device, channel)
 
-        # Find endpoint OUT.
-        if endpoint_out is None:
-            endpoint_out_description: usb.core.Endpoint = usb.util.find_descriptor(
-                self._usb_device.get_active_configuration()[self._interface_number, alternate_setting],
-                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
-            )
-            if endpoint_out_description is None:
-                raise IndexError('Can not find a suitable OUT endpoint, maybe specify it manually.')
-            endpoint_out = endpoint_out_description.bEndpointAddress
+            # Update read buffer information.
+            rx_size = gs_host_frame_header_struct.size
+            if channel_obj.is_fd_supported:
+                rx_size += 64
+            else:
+                rx_size += 8
+            if channel_obj.is_hardware_timestamp_supported:
+                rx_size += 4
+            self._size_rx = max(self._size_rx, rx_size)
+            self._hardware_timestamp |= channel_obj.is_hardware_timestamp_supported
 
-        return CandleChannel(self, self._usb_device, channel, endpoint_in, endpoint_out)
+            # Add weak reference.
+            self._channel_ref[channel] = channel_obj
+
+        return channel_obj
+
+    def polling(self, timeout_ms: Optional[int] = None) -> None:
+        try:
+            raw_frame = bytes(self._usb_device.read(self._endpoint_in, self._size_rx, timeout_ms))
+        except usb.core.USBTimeoutError:
+            return
+
+        # In the case of can fd data frames, the size of the host frame will be slightly
+        # more than 64 bytes (USB FS packet size) and will be truncated in some backends.
+        if self._size_rx > 64 and len(raw_frame) == 64:
+            try:
+                raw_frame += bytes(self._usb_device.read(self._endpoint_in, self._size_rx - 64, 100))
+            except usb.core.USBTimeoutError:
+                return
+
+        frame = GSHostFrame.unpack(raw_frame, self._hardware_timestamp)
+        if frame is not None:
+            try:
+                channel = self._channel_ref[frame.header.channel]
+            except KeyError:
+                pass
+            else:
+                channel._message_queue.put(frame)
 
 
 class CandleDevice:
@@ -763,6 +801,7 @@ class CandleDevice:
     devices_ref: WeakSet[CandleDevice] = WeakSet()
 
     def __init__(self, usb_device: usb.core.Device):
+        self._interface_ref: WeakValueDictionary[int, CandleInterface] = WeakValueDictionary()
         self._usb_device = usb_device
 
         # Forward usb descriptions from usb device.
@@ -792,12 +831,18 @@ class CandleDevice:
 
     def __getitem__(self, interface_number: int) -> CandleInterface:
         try:
-            if self._usb_device.is_kernel_driver_active(interface_number):
-                self._usb_device.detach_kernel_driver(interface_number)
-        except NotImplementedError:
-            pass
+            interface_obj = self._interface_ref[interface_number]
+        except KeyError:
+            try:
+                if self._usb_device.is_kernel_driver_active(interface_number):
+                    self._usb_device.detach_kernel_driver(interface_number)
+            except NotImplementedError:
+                pass
 
-        return CandleInterface(self, self._usb_device, interface_number)
+            interface_obj = CandleInterface(self, self._usb_device, interface_number)
+            self._interface_ref[interface_number] = interface_obj
+
+        return interface_obj
 
     def __str__(self) -> str:
         return f'{self.idVendor:04X}:{self.idProduct:04X} - {self.manufacturer} - {self.product} - {self.serial_number}'
@@ -844,3 +889,7 @@ class CandleDevice:
                         usb.util.dispose_resources(udev)
                     cls.devices_ref.add(dev)
                     yield dev
+
+    def polling(self, timeout_ms: Optional[int] = None) -> None:
+        for interface in self._interface_ref.values():
+            interface.polling(timeout_ms)

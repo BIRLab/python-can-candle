@@ -19,7 +19,8 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QPersistentModelIndex,
-    QCommandLineParser
+    QCommandLineParser,
+    QElapsedTimer
 )
 from PySide6.QtGui import (
     QFocusEvent,
@@ -209,7 +210,9 @@ class CandleManager(QObject):
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Running:
                 try:
-                    while True:
+                    elapsed_timer = QElapsedTimer()
+                    elapsed_timer.start()
+                    while elapsed_timer.elapsed() < self.polling_timer.interval():
                         frame = self.channel.read(1)
                         if frame is not None:
                             self.messageReceived.emit(frame)

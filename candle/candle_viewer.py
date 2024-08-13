@@ -1157,6 +1157,8 @@ class MainWindow(QWidget):
     @Slot()
     def handle_export(self) -> None:
         file_name = QFileDialog.getSaveFileName(self, filter="CSV (*.csv)")[0]
+        if not file_name:
+            return
         if not file_name.endswith('.csv'):
             file_name += '.csv'
         self.export.emit(file_name)

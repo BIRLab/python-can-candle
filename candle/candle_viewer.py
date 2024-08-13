@@ -152,20 +152,30 @@ class CandleManager(QObject):
     def set_bit_timing(self, bit_timing: GSDeviceBitTiming) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
-                self.channel.set_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
+                try:
+                    self.channel.set_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
+                except usb.core.USBError as e:
+                    self.handle_exception(str(e))
 
     @Slot(GSDeviceBitTiming)
     def set_data_bit_timing(self, bit_timing: GSDeviceBitTiming) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
-                self.channel.set_data_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
+                try:
+                    self.channel.set_data_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
+                except usb.core.USBError as e:
+                    self.handle_exception(str(e))
 
     @Slot(bool, bool, bool, bool, bool, bool)
     def start(self, fd: bool, loopback: bool, listen_only: bool, triple_sample: bool, one_shot: bool, bit_error_reporting: bool) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
-                self.channel.open(fd, loopback, listen_only, triple_sample, one_shot, bit_error_reporting)
-                self.transition(CandleManagerState.Running)
+                try:
+                    self.channel.open(fd, loopback, listen_only, triple_sample, one_shot, bit_error_reporting)
+                except usb.core.USBError as e:
+                    self.handle_exception(str(e))
+                else:
+                    self.transition(CandleManagerState.Running)
 
     @Slot()
     def stop(self) -> None:
@@ -178,7 +188,10 @@ class CandleManager(QObject):
     def set_termination(self, state: bool) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
-                self.channel.termination = state
+                try:
+                    self.channel.termination = state
+                except usb.core.USBError as e:
+                    self.handle_exception(str(e))
 
     @Slot(GSHostFrame)
     def send_message(self, frame: GSHostFrame) -> None:
@@ -905,7 +918,7 @@ class MainWindow(QWidget):
     @Slot(CandleManagerState)
     def handle_state_transition(self, _from_state: CandleManagerState, to_state: CandleManagerState) -> None:
         if to_state == CandleManagerState.DeviceSelection:
-            self.device_selector.setEnabled(True)
+            self.device_selector.setEnabled(False)
             self.channel_selector.setEnabled(False)
             self.bit_timing_button.setEnabled(False)
             self.start_button.setEnabled(False)

@@ -2,7 +2,7 @@
 import sys
 import usb
 from can import BitTiming, BitTimingFd
-from typing import Optional, List, Union, Any, cast
+from typing import Optional, List, Tuple, Union, Any, cast
 from enum import Enum, auto
 from functools import partial
 from random import randrange
@@ -49,7 +49,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHeaderView,
     QTableView,
-    QFileDialog
+    QFileDialog,
+    QProgressBar
 )
 from candle.candle_api import (
     CandleDevice,
@@ -79,6 +80,7 @@ class CandleManager(QObject):
 
     stateTransition = Signal(CandleManagerState, CandleManagerState)
     messageReceived = Signal(GSHostFrame)
+    busLoad = Signal(int)
     exceptionOccurred = Signal(str)
     channelInfo = Signal(GSDeviceBTConstExtended)
 
@@ -89,6 +91,17 @@ class CandleManager(QObject):
         self.device_list: List[CandleDevice] = []
         self.interface: Optional[CandleInterface] = None
         self.channel: Optional[CandleChannel] = None
+
+        self.arbitration_rate: Optional[float] = None
+        self.payload_rate: Optional[float] = None
+        self.total_transfer_time: float = 0
+        self.transfer_elapsed_timer = QElapsedTimer()
+        self.transfer_elapsed_timer.start()
+        self.transfer_time_mutex = QMutexLocker(QMutex())
+        self.bus_load_calculation_timer = QTimer()
+        self.bus_load_calculation_timer.setInterval(1000)
+        self.bus_load_calculation_timer.timeout.connect(self.calculate_bus_load)
+        self.bus_load_calculation_timer.start()
 
         self.state_transition_mutex = QMutexLocker(QMutex())
 
@@ -156,6 +169,8 @@ class CandleManager(QObject):
                     self.channel.set_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
                 except usb.core.USBError as e:
                     self.handle_exception(str(e))
+                else:
+                    self.arbitration_rate = self.channel.clock_frequency / ((1 + bit_timing.prop_seg + bit_timing.phase_seg1 + bit_timing.phase_seg2) * bit_timing.brp)
 
     @Slot(GSDeviceBitTiming)
     def set_data_bit_timing(self, bit_timing: GSDeviceBitTiming) -> None:
@@ -165,6 +180,8 @@ class CandleManager(QObject):
                     self.channel.set_data_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
                 except usb.core.USBError as e:
                     self.handle_exception(str(e))
+                else:
+                    self.payload_rate = self.channel.clock_frequency / ((1 + bit_timing.prop_seg + bit_timing.phase_seg1 + bit_timing.phase_seg2) * bit_timing.brp)
 
     @Slot(bool, bool, bool, bool, bool, bool)
     def start(self, fd: bool, loopback: bool, listen_only: bool, triple_sample: bool, one_shot: bool, bit_error_reporting: bool) -> None:
@@ -199,7 +216,7 @@ class CandleManager(QObject):
             if self.state == CandleManagerState.Running:
                 try:
                     self.channel.write(frame)
-                except usb.core.USBError as e:
+                except TimeoutError as e:
                     try:
                         self.channel.close()
                     except usb.core.USBError:
@@ -215,8 +232,65 @@ class CandleManager(QObject):
     def handle_exception(self, error: str) -> None:
         self.interface = None
         self.channel = None
+        self.arbitration_rate = None
+        self.payload_rate = None
         self.transition(CandleManagerState.DeviceSelection)
         self.exceptionOccurred.emit(error)
+
+    def update_history(self, frame) -> None:
+        if frame.header.is_error_frame:
+            # Ignore error frame.
+            return
+
+        if self.arbitration_rate is None:
+            return
+
+        if frame.header.is_fd and frame.header.is_bitrate_switch and self.payload_rate is None:
+            return
+
+        # SOF RTR/RRS IDE r0/FDF ACK EOF IFS
+        arbitration_bits = 16
+
+        # ID
+        if frame.header.is_extended_id:
+            arbitration_bits += 29
+        else:
+            arbitration_bits += 11
+
+        # res BRS
+        if frame.header.is_fd:
+            arbitration_bits += 2
+
+        # payload
+        if frame.header.is_fd:
+            if frame.header.data_length > 16:
+                # ESI DLC SBC 21-bit-CRC
+                payload_bits = 31 + frame.header.data_length * 8
+            else:
+                # ESI DLC SBC 17-bit-CRC
+                payload_bits = 27 + frame.header.data_length * 8
+        else:
+            payload_bits = 20 + frame.header.data_length * 8
+
+        if frame.header.is_fd and frame.header.is_bitrate_switch:
+            # BRS
+            transfer_time = arbitration_bits / self.arbitration_rate + payload_bits / self.payload_rate
+        else:
+            transfer_time = (arbitration_bits + payload_bits) / self.arbitration_rate
+
+        with self.transfer_time_mutex:
+            self.total_transfer_time += transfer_time
+
+    @Slot()
+    def calculate_bus_load(self) -> None:
+        if self.transfer_elapsed_timer.elapsed() == 0:
+            return
+
+        with self.transfer_time_mutex:
+            bus_load = 1e3 * self.total_transfer_time / self.transfer_elapsed_timer.elapsed()
+            self.total_transfer_time = 0
+            self.busLoad.emit(round(100 * bus_load))
+        self.transfer_elapsed_timer.restart()
 
     @Slot()
     def polling(self) -> None:
@@ -228,6 +302,7 @@ class CandleManager(QObject):
                     while elapsed_timer.elapsed() < self.polling_timer.interval():
                         self.interface.polling(1)
                         while (frame := self.channel.read()) is not None:
+                            self.update_history(frame)
                             self.messageReceived.emit(frame)
                 except usb.core.USBTimeoutError:
                     pass
@@ -818,6 +893,17 @@ class MainWindow(QWidget):
         hbox_layout3.addWidget(self.input_panel)
         hbox_layout3.addLayout(vbox_layout2)
         hbox_layout3.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        vbox_layout_3 = QVBoxLayout()
+        bus_load_bar = QProgressBar()
+        bus_load_bar.setOrientation(Qt.Vertical)
+        bus_load_bar.setMaximum(100)
+        bus_load_bar.setValue(0)
+        bus_load_bar.setTextVisible(False)
+        bus_load_label = QLabel('0%')
+        vbox_layout_3.addWidget(QLabel('Load'), alignment=Qt.AlignmentFlag.AlignHCenter)
+        vbox_layout_3.addWidget(bus_load_bar, alignment=Qt.AlignmentFlag.AlignHCenter)
+        vbox_layout_3.addWidget(bus_load_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        hbox_layout3.addLayout(vbox_layout_3)
         vbox_layout.addLayout(hbox_layout1)
         vbox_layout.addLayout(hbox_layout2)
         vbox_layout.addWidget(self.message_viewer, 1)
@@ -871,6 +957,8 @@ class MainWindow(QWidget):
         self.candle_manager.selectDeviceResult.connect(self.handle_select_device_result)
         self.export.connect(self.message_model.export)
         self.message_model.exportFinished.connect(self.handle_export_finished)
+        self.candle_manager.busLoad.connect(bus_load_bar.setValue)
+        self.candle_manager.busLoad.connect(lambda x: bus_load_label.setText(f'{x}%'))
 
         # Start thread and timer.
         self.polling_thread.start()

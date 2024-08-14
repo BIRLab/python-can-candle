@@ -862,7 +862,12 @@ class CandleDevice:
             trait['serial_number'] = serial_number
 
         def matcher(x: CandleDevice) -> bool:
-            return all(getattr(x, k) == v for k, v in trait.items())
+            try:
+                match_result = all(getattr(x, k) == v for k, v in trait.items())
+            except ValueError:
+                return False
+            else:
+                return match_result
 
         # Is there an active device in use?
         for dev in cls.devices_ref:

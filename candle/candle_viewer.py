@@ -2,7 +2,7 @@
 import sys
 import usb
 from can import BitTiming, BitTimingFd
-from typing import Optional, List, Tuple, Union, Any, cast
+from typing import Optional, List, Union, Any, cast
 from enum import Enum, auto
 from functools import partial
 from random import randrange
@@ -290,6 +290,7 @@ class CandleManager(QObject):
             bus_load = 1e3 * self.total_transfer_time / self.transfer_elapsed_timer.elapsed()
             self.total_transfer_time = 0
             self.busLoad.emit(round(100 * bus_load))
+
         self.transfer_elapsed_timer.restart()
 
     @Slot()
@@ -304,8 +305,6 @@ class CandleManager(QObject):
                         while (frame := self.channel.read()) is not None:
                             self.update_history(frame)
                             self.messageReceived.emit(frame)
-                except usb.core.USBTimeoutError:
-                    pass
                 except usb.core.USBError as e:
                     if e.errno != 32:   # Ignore pipe error.
                         try:

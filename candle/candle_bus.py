@@ -1,7 +1,6 @@
 from typing import Optional, Any, TYPE_CHECKING, Tuple
 from candle.candle_api import CandleDevice, CandleChannel, GSHostFrame, GSHostFrameHeader, GSDeviceState, GSCANFlag
 import can
-import usb
 
 
 class CandleBus(can.bus.BusABC):

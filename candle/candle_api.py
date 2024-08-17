@@ -682,34 +682,12 @@ class CandleChannel:
 
 
 class CandleInterface:
-    def __init__(self, parent: CandleDevice, usb_device: usb.core.Device, interface_number: int, endpoint_in: Optional[int] = None, endpoint_out: Optional[int] = None, alternate_setting = 0) -> None:
+    def __init__(self, parent: CandleDevice, usb_device: usb.core.Device, interface_number: int, endpoint_in: int, endpoint_out: int) -> None:
         self._channel_ref: WeakValueDictionary[int, CandleChannel] = WeakValueDictionary()
         self._size_rx = 0
         self._hardware_timestamp = False
         self._parent = parent
         self._usb_device = usb_device
-        self._interface_number = interface_number
-
-        # Find endpoint IN.
-        if endpoint_in is None:
-            endpoint_in_description: usb.core.Endpoint = usb.util.find_descriptor(
-                self._usb_device.get_active_configuration()[self._interface_number, alternate_setting],
-                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
-            )
-            if endpoint_in_description is None:
-                raise IndexError('Can not find a suitable IN endpoint, maybe specify it manually.')
-            endpoint_in = endpoint_in_description.bEndpointAddress
-
-        # Find endpoint OUT.
-        if endpoint_out is None:
-            endpoint_out_description: usb.core.Endpoint = usb.util.find_descriptor(
-                self._usb_device.get_active_configuration()[self._interface_number, alternate_setting],
-                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
-            )
-            if endpoint_out_description is None:
-                raise IndexError('Can not find a suitable OUT endpoint, maybe specify it manually.')
-            endpoint_out = endpoint_out_description.bEndpointAddress
-
         self._endpoint_in = endpoint_in
         self._endpoint_out = endpoint_out
 
@@ -717,7 +695,7 @@ class CandleInterface:
             usb.util.CTRL_OUT | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_INTERFACE,
             GSUsbRequest.HOST_FORMAT,
             1,
-            self._interface_number,
+            interface_number,
             gs_host_config_struct.pack(*astuple(GSHostConfig(0x0000beef))),
             1000
         )
@@ -728,7 +706,7 @@ class CandleInterface:
                     usb.util.CTRL_IN | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_INTERFACE,
                     GSUsbRequest.DEVICE_CONFIG,
                     1,
-                    self._interface_number,
+                    interface_number,
                     gs_device_config_struct.size,
                     1000
                 )
@@ -829,7 +807,7 @@ class CandleDevice:
     def __len__(self) -> int:
         return self._usb_device.get_active_configuration().bNumInterfaces
 
-    def __getitem__(self, interface_number: int) -> CandleInterface:
+    def __getitem__(self, interface_number: int, alternate_setting: int = 0, endpoint_in: Optional[int] = None, endpoint_out: Optional[int] = None) -> CandleInterface:
         try:
             interface_obj = self._interface_ref[interface_number]
         except KeyError:
@@ -839,7 +817,27 @@ class CandleDevice:
             except NotImplementedError:
                 pass
 
-            interface_obj = CandleInterface(self, self._usb_device, interface_number)
+            # Find endpoint IN.
+            if endpoint_in is None:
+                endpoint_in_description: usb.core.Endpoint = usb.util.find_descriptor(
+                    self._usb_device.get_active_configuration()[interface_number, alternate_setting],
+                    custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
+                )
+                if endpoint_in_description is None:
+                    raise IndexError('Can not find a suitable IN endpoint, maybe specify it manually.')
+                endpoint_in = endpoint_in_description.bEndpointAddress
+
+            # Find endpoint OUT.
+            if endpoint_out is None:
+                endpoint_out_description: usb.core.Endpoint = usb.util.find_descriptor(
+                    self._usb_device.get_active_configuration()[interface_number, alternate_setting],
+                    custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+                )
+                if endpoint_out_description is None:
+                    raise IndexError('Can not find a suitable OUT endpoint, maybe specify it manually.')
+                endpoint_out = endpoint_out_description.bEndpointAddress
+
+            interface_obj = CandleInterface(self, self._usb_device, interface_number, endpoint_in, endpoint_out)
             self._interface_ref[interface_number] = interface_obj
 
         return interface_obj

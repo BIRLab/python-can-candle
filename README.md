@@ -36,6 +36,12 @@ Once installed you can launch it via `candle_viewer` or `python -m candle.candle
 
 ![Candle Viewer](https://raw.githubusercontent.com/BIRLab/python-can-candle/main/assets/viewer.png)
 
+(unstable) Installing a backend written in C can improve performance.
+
+```shell
+pip install python-can-candle[capi]
+```
+
 ## Example
 
 ### Using with python-can (recommended)

@@ -45,7 +45,7 @@ class CandleBus(can.bus.BusABC):
     def __init__(self, channel: int, can_filters: Optional[can.typechecking.CanFilters] = None,
                  bitrate: int = 1000000, sample_point: float = 87.5,
                  data_bitrate: int = 5000000, data_sample_point: float = 87.5,
-                 fd: bool = False, loopback: bool = False, listen_only: bool = False,
+                 fd: bool = False, loop_back: bool = False, listen_only: bool = False,
                  triple_sample: bool = False, one_shot: bool = False, bit_error_reporting: bool = False,
                  termination: Optional[bool] = None, vid: Optional[int] = None, pid: Optional[int] = None,
                  manufacture: Optional[str] = None, product: Optional[str] = None,
@@ -110,7 +110,7 @@ class CandleBus(can.bus.BusABC):
         # Open the channel.
         self._channel.open(
             fd=fd,
-            loopback=loopback,
+            loopback=loop_back,
             listen_only=listen_only,
             triple_sample=triple_sample,
             one_shot=one_shot,

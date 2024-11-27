@@ -31,7 +31,6 @@ candle_viewer = "candle.candle_viewer:main"
 [project.optional-dependencies]
 libusb = ["libusb"]
 viewer = ["PySide6"]
-capi = ["candle_api @ git+https://github.com/BIRLab/candle_api.git@main"]
 
 [tool.setuptools.packages.find]
 where = ["."]

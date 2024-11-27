@@ -39,7 +39,7 @@ Once installed you can launch it via `candle_viewer` or `python -m candle.candle
 (unstable) Installing a backend written in C can improve performance.
 
 ```shell
-pip install python-can-candle[capi]
+pip install "candle_api @ git+https://github.com/BIRLab/candle_api.git@main"
 ```
 
 ## Example

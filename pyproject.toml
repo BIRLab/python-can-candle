@@ -34,7 +34,7 @@ viewer = ["PySide6"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["candle"]
+include = ["candle", "candle.candle_bus"]
 namespaces = false
 
 [tool.setuptools.dynamic]

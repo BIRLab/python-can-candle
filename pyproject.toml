@@ -61,3 +61,7 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "PySide6.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "candle_api.*"
+ignore_missing_imports = true

@@ -1,12 +1,12 @@
 # mypy: disable-error-code="union-attr"
 import sys
-import usb
 from can import BitTiming, BitTimingFd
 from typing import Optional, List, Union, Any, cast
 from enum import Enum, auto
 from functools import partial
 from random import randrange
 import csv
+from dataclasses import dataclass
 from PySide6.QtCore import (
     Signal,
     Slot,
@@ -52,19 +52,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QProgressBar
 )
-from candle.candle_api import (
-    CandleDevice,
-    CandleInterface,
-    CandleChannel,
-    GSHostFrame,
-    GSHostFrameHeader,
-    GSCANFlag,
-    GSDeviceBTConstExtended,
-    GSDeviceBitTiming,
-    GSCANFeature,
-    DLC2LEN
-)
+import candle_api as api
 from candle import __version__
+
+
+ISO_DLC = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
 
 
 class CandleManagerState(Enum):
@@ -74,23 +66,54 @@ class CandleManagerState(Enum):
     Running = auto()
 
 
+@dataclass
+class CandleBitTiming:
+    prop_seg: int
+    phase_seg1: int
+    phase_seg2: int
+    sjw: int
+    brp: int
+
+
+@dataclass
+class CandleBTConstExtended:
+    feature: Optional[api.CandleFeature]
+    fclk_can: int
+    tseg1_min: int
+    tseg1_max: int
+    tseg2_min: int
+    tseg2_max: int
+    sjw_max: int
+    brp_min: int
+    brp_max: int
+    brp_inc: int
+    dtseg1_min: int = -1
+    dtseg1_max: int = -1
+    dtseg2_min: int = -1
+    dtseg2_max: int = -1
+    dsjw_max: int = -1
+    dbrp_min: int = -1
+    dbrp_max: int = -1
+    dbrp_inc: int = -1
+
+
 class CandleManager(QObject):
     scanResult = Signal(list)
     selectDeviceResult = Signal(int, int, int)
 
     stateTransition = Signal(CandleManagerState, CandleManagerState)
-    messageReceived = Signal(GSHostFrame)
+    messageReceived = Signal(api.CandleCanFrame)
     busLoad = Signal(int)
     exceptionOccurred = Signal(str)
-    channelInfo = Signal(GSDeviceBTConstExtended)
+    channelInfo = Signal(CandleBTConstExtended)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self.state = CandleManagerState.DeviceSelection
 
-        self.device_list: List[CandleDevice] = []
-        self.interface: Optional[CandleInterface] = None
-        self.channel: Optional[CandleChannel] = None
+        self.device_list: List[api.CandleDevice] = []
+        self.interface: Optional[api.CandleDevice] = None
+        self.channel: Optional[api.CandleChannel] = None
 
         self.arbitration_rate: Optional[float] = None
         self.payload_rate: Optional[float] = None
@@ -114,22 +137,24 @@ class CandleManager(QObject):
     def scan(self) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Running:
-                self.channel.close()
+                self.channel.reset()
+                if self.interface is not None:
+                    self.interface.close()
                 self.interface = None
                 self.channel = None
             if self.state == CandleManagerState.Configuration:
+                if self.interface is not None:
+                    self.interface.close()
                 self.interface = None
                 self.channel = None
             if self.state == CandleManagerState.ChannelSelection:
+                if self.interface is not None:
+                    self.interface.close()
                 self.interface = None
             self.transition(CandleManagerState.DeviceSelection)
             self.device_list.clear()
-            try:
-                self.device_list = list(CandleDevice.scan())
-            except usb.USBError as e:
-                self.handle_exception(str(e))
-            else:
-                self.scanResult.emit(self.device_list)
+            self.device_list = api.list_device()
+            self.scanResult.emit(self.device_list)
 
     @Slot(int)
     def select_device(self, index: int) -> None:
@@ -137,14 +162,11 @@ class CandleManager(QObject):
             if index < 0:
                 return
             if self.state == CandleManagerState.DeviceSelection or self.state == CandleManagerState.ChannelSelection or self.state == CandleManagerState.Configuration:
-                try:
-                    self.interface = self.device_list[index][0]
-                except usb.core.USBError as e:
-                    self.handle_exception(str(e))
-                else:
-                    self.channel = None
-                    self.transition(CandleManagerState.ChannelSelection)
-                    self.selectDeviceResult.emit(self.interface.hardware_version, self.interface.software_version, len(self.interface))
+                self.interface = self.device_list[index]
+                self.interface.open()
+                self.channel = None
+                self.transition(CandleManagerState.ChannelSelection)
+                self.selectDeviceResult.emit(self.interface.hardware_version, self.interface.software_version, len(self.interface))
 
     @Slot(int)
     def select_channel(self, index: int) -> None:
@@ -152,33 +174,53 @@ class CandleManager(QObject):
             if index < 0:
                 return
             if self.state == CandleManagerState.ChannelSelection or self.state == CandleManagerState.Configuration:
+                self.channel = self.interface[index]
                 try:
-                    self.channel = self.interface[index]    # type: ignore[index]
-                except usb.core.USBError as e:
-                    self.handle_exception(str(e))
-                else:
-                    self.channel.close()
-                    self.transition(CandleManagerState.Configuration)
-                    self.channelInfo.emit(self.channel._bt_const)
+                    self.channel.reset()
+                except RuntimeError:
+                    pass
+                self.transition(CandleManagerState.Configuration)
+                self.channelInfo.emit(
+                    CandleBTConstExtended(
+                        feature=self.channel.feature,
+                        fclk_can=self.channel.clock_frequency,
+                        tseg1_min=self.channel.nominal_bit_timing_const.tseg1_min,
+                        tseg1_max=self.channel.nominal_bit_timing_const.tseg1_max,
+                        tseg2_min=self.channel.nominal_bit_timing_const.tseg2_min,
+                        tseg2_max=self.channel.nominal_bit_timing_const.tseg2_max,
+                        sjw_max=self.channel.nominal_bit_timing_const.sjw_max,
+                        brp_min=self.channel.nominal_bit_timing_const.brp_min,
+                        brp_max=self.channel.nominal_bit_timing_const.brp_max,
+                        brp_inc=self.channel.nominal_bit_timing_const.brp_inc,
+                        dtseg1_min=self.channel.data_bit_timing_const.tseg1_min,
+                        dtseg1_max=self.channel.data_bit_timing_const.tseg1_max,
+                        dtseg2_min=self.channel.data_bit_timing_const.tseg2_min,
+                        dtseg2_max=self.channel.data_bit_timing_const.tseg2_max,
+                        dsjw_max=self.channel.data_bit_timing_const.sjw_max,
+                        dbrp_min=self.channel.data_bit_timing_const.brp_min,
+                        dbrp_max=self.channel.data_bit_timing_const.brp_max,
+                        dbrp_inc=self.channel.data_bit_timing_const.brp_inc
+                    )
+                )
 
-    @Slot(GSDeviceBitTiming)
-    def set_bit_timing(self, bit_timing: GSDeviceBitTiming) -> None:
+    @Slot(CandleBitTiming)
+    def set_bit_timing(self, bit_timing: CandleBitTiming) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
                 try:
                     self.channel.set_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
-                except usb.core.USBError as e:
+                except RuntimeError as e:
                     self.handle_exception(str(e))
                 else:
                     self.arbitration_rate = self.channel.clock_frequency / ((1 + bit_timing.prop_seg + bit_timing.phase_seg1 + bit_timing.phase_seg2) * bit_timing.brp)
 
-    @Slot(GSDeviceBitTiming)
-    def set_data_bit_timing(self, bit_timing: GSDeviceBitTiming) -> None:
+    @Slot(CandleBitTiming)
+    def set_data_bit_timing(self, bit_timing: CandleBitTiming) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
                 try:
                     self.channel.set_data_bit_timing(bit_timing.prop_seg, bit_timing.phase_seg1, bit_timing.phase_seg2, bit_timing.sjw, bit_timing.brp)
-                except usb.core.USBError as e:
+                except RuntimeError as e:
                     self.handle_exception(str(e))
                 else:
                     self.payload_rate = self.channel.clock_frequency / ((1 + bit_timing.prop_seg + bit_timing.phase_seg1 + bit_timing.phase_seg2) * bit_timing.brp)
@@ -188,8 +230,8 @@ class CandleManager(QObject):
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
                 try:
-                    self.channel.open(fd, loopback, listen_only, triple_sample, one_shot, bit_error_reporting)
-                except usb.core.USBError as e:
+                    self.channel.start(fd=fd, loop_back=loopback, listen_only=listen_only, triple_sample=triple_sample, one_shot=one_shot, bit_error_reporting=bit_error_reporting)
+                except RuntimeError as e:
                     self.handle_exception(str(e))
                 else:
                     self.transition(CandleManagerState.Running)
@@ -198,7 +240,10 @@ class CandleManager(QObject):
     def stop(self) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Running:
-                self.channel.close()
+                try:
+                    self.channel.reset()
+                except RuntimeError:
+                    pass
                 self.transition(CandleManagerState.Configuration)
 
     @Slot(bool)
@@ -206,20 +251,20 @@ class CandleManager(QObject):
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
                 try:
-                    self.channel.termination = state
-                except usb.core.USBError as e:
+                    self.channel.set_termination(state)
+                except RuntimeError as e:
                     self.handle_exception(str(e))
 
-    @Slot(GSHostFrame)
-    def send_message(self, frame: GSHostFrame) -> None:
+    @Slot(api.CandleCanFrame)
+    def send_message(self, frame: api.CandleCanFrame) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Running:
                 try:
-                    self.channel.write(frame)
+                    self.channel.send(frame, 1.0)
                 except TimeoutError as e:
                     try:
-                        self.channel.close()
-                    except usb.core.USBError:
+                        self.channel.reset()
+                    except RuntimeError:
                         pass
                     self.handle_exception(str(e))
 
@@ -230,6 +275,11 @@ class CandleManager(QObject):
             self.stateTransition.emit(from_state, self.state)
 
     def handle_exception(self, error: str) -> None:
+        if self.interface is not None:
+            try:
+                self.interface.close()
+            except RuntimeError:
+                pass
         self.interface = None
         self.channel = None
         self.arbitration_rate = None
@@ -237,42 +287,43 @@ class CandleManager(QObject):
         self.transition(CandleManagerState.DeviceSelection)
         self.exceptionOccurred.emit(error)
 
-    def update_history(self, frame) -> None:
-        if frame.header.is_error_frame:
+    def update_history(self, frame: api.CandleCanFrame) -> None:
+        frame_type = frame.frame_type
+        if frame_type.error_frame:
             # Ignore error frame.
             return
 
         if self.arbitration_rate is None:
             return
 
-        if frame.header.is_fd and frame.header.is_bitrate_switch and self.payload_rate is None:
+        if frame_type.fd and frame_type.bitrate_switch and self.payload_rate is None:
             return
 
         # SOF RTR/RRS IDE r0/FDF ACK EOF IFS
         arbitration_bits = 16
 
         # ID
-        if frame.header.is_extended_id:
+        if frame_type.extended_id:
             arbitration_bits += 29
         else:
             arbitration_bits += 11
 
         # res BRS
-        if frame.header.is_fd:
+        if frame_type.fd:
             arbitration_bits += 2
 
         # payload
-        if frame.header.is_fd:
-            if frame.header.data_length > 16:
+        if frame_type.fd:
+            if frame.size > 16:
                 # ESI DLC SBC 21-bit-CRC
-                payload_bits = 31 + frame.header.data_length * 8
+                payload_bits = 31 + frame.size * 8
             else:
                 # ESI DLC SBC 17-bit-CRC
-                payload_bits = 27 + frame.header.data_length * 8
+                payload_bits = 27 + frame.size * 8
         else:
-            payload_bits = 20 + frame.header.data_length * 8
+            payload_bits = 20 + frame.size * 8
 
-        if frame.header.is_fd and frame.header.is_bitrate_switch:
+        if frame_type.fd and frame_type.bitrate_switch:
             # BRS
             transfer_time = arbitration_bits / self.arbitration_rate + payload_bits / self.payload_rate
         else:
@@ -297,28 +348,26 @@ class CandleManager(QObject):
     def polling(self) -> None:
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Running:
-                try:
-                    elapsed_timer = QElapsedTimer()
-                    elapsed_timer.start()
-                    while elapsed_timer.elapsed() < self.polling_timer.interval():
-                        self.interface.polling(1)
-                        while (frame := self.channel.read()) is not None:
-                            self.update_history(frame)
-                            self.messageReceived.emit(frame)
-                except usb.core.USBError as e:
-                    if e.errno != 32:   # Ignore pipe error.
-                        try:
-                            self.channel.close()
-                        except usb.core.USBError:
-                            pass
-                        self.handle_exception(str(e))
+                elapsed_timer = QElapsedTimer()
+                elapsed_timer.start()
+                while True:
+                    remaining_time = self.polling_timer.interval() - elapsed_timer.elapsed()
+                    if remaining_time < 0:
+                        break
+                    try:
+                        frame = self.channel.receive(remaining_time / 1000)
+                    except TimeoutError:
+                        pass
+                    else:
+                        self.update_history(frame)
+                        self.messageReceived.emit(frame)
 
     @Slot()
     def cleanup(self) -> None:
         if self.channel is not None:
             try:
-                self.channel.close()
-            except usb.core.USBError:
+                self.channel.reset()
+            except RuntimeError:
                 pass
 
 
@@ -364,7 +413,7 @@ class InputPanel(QWidget):
             row = i // 8
             column = i % 8
             line_edit: QLineEdit = cast(QLineEdit, self.grid_layout.itemAtPosition(row + 1, column + 1).widget())
-            if i < DLC2LEN[dlc]:
+            if i < ISO_DLC[dlc]:
                 line_edit.setEnabled(True)
             else:
                 line_edit.setEnabled(False)
@@ -398,8 +447,8 @@ class MessageTableModel(QAbstractTableModel):
         super().__init__(parent)
         self.mutex = QMutexLocker(QMutex())
         self.header = ('Timestamp', 'CAN ID', 'Rx/Tx', 'Type', 'Length', 'Data')
-        self.message_buffer: List[GSHostFrame] = []
-        self.message_pending: List[GSHostFrame] = []
+        self.message_buffer: List[api.CandleCanFrame] = []
+        self.message_pending: List[api.CandleCanFrame] = []
         self.monospace_font = QFont('Monospace', 10)
         self.monospace_font.setStyleHint(QFont.StyleHint.TypeWriter)
         self.monospace_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
@@ -417,8 +466,8 @@ class MessageTableModel(QAbstractTableModel):
                 csv_writer.writerow([self.data(self.index(i, j)) for j in range(self.columnCount())])
         self.exportFinished.emit()
 
-    @Slot(GSHostFrame)
-    def handle_message(self, message: GSHostFrame) -> None:
+    @Slot(api.CandleCanFrame)
+    def handle_message(self, message: api.CandleCanFrame) -> None:
         with self.mutex:
             self.message_pending.append(message)
 
@@ -455,137 +504,138 @@ class MessageTableModel(QAbstractTableModel):
             if column == 0:
                 return str(message.timestamp)
             if column == 1:
-                return f'0x{message.header.arbitration_id:08X}' if message.header.is_extended_id else f'0x{message.header.arbitration_id:03X}'
+                return f'0x{message.can_id:08X}' if message.frame_type.extended_id else f'0x{message.can_id:03X}'
             if column == 2:
-                return 'Rx' if message.header.is_rx else 'Tx'
+                return 'Rx' if message.frame_type.rx else 'Tx'
             if column == 3:
-                if message.header.is_error_frame:
+                if message.frame_type.error_frame:
                     return 'Error'
-                if message.header.is_remote_frame:
+                if message.frame_type.remote_frame:
                     return 'Remote'
-                if message.header.is_fd:
+                if message.frame_type.fd:
                     fd_flags = ['FD']
-                    if message.header.is_bitrate_switch:
+                    if message.frame_type.bitrate_switch:
                         fd_flags.append('BRS')
-                    if message.header.is_error_state_indicator:
+                    if message.frame_type.error_state_indicator:
                         fd_flags.append('ESI')
                     return ' '.join(fd_flags)
                 else:
                     return 'Data'
             if column == 4:
-                return str(message.header.data_length)
+                return str(message.size)
             if column == 5:
-                if message.header.is_error_frame:
+                if message.frame_type.error_frame:
                     error_flags = []
-                    if message.header.can_id & (1 << 0):
+                    message_data = message.data
+                    if message.can_id & (1 << 0):
                         error_flags.append('TX timeout')
-                    if message.header.can_id & (1 << 1):
-                        error_flags.append(f'arbitration lost in bit {message.data[0]}')
-                    if message.header.can_id & (1 << 2):
+                    if message.can_id & (1 << 1):
+                        error_flags.append(f'arbitration lost in bit {message_data[0]}')
+                    if message.can_id & (1 << 2):
                         error_flags.append('controller problems')
-                        if message.data[1] & (1 << 0):
+                        if message_data[1] & (1 << 0):
                             error_flags.append('RX buffer overflow')
-                        if message.data[1] & (1 << 1):
+                        if message_data[1] & (1 << 1):
                             error_flags.append('TX buffer overflow')
-                        if message.data[1] & (1 << 2):
+                        if message_data[1] & (1 << 2):
                             error_flags.append('reached warning level for RX errors')
-                        if message.data[1] & (1 << 3):
+                        if message_data[1] & (1 << 3):
                             error_flags.append('reached warning level for TX errors')
-                        if message.data[1] & (1 << 4):
+                        if message_data[1] & (1 << 4):
                             error_flags.append('reached error passive status RX')
-                        if message.data[1] & (1 << 5):
+                        if message_data[1] & (1 << 5):
                             error_flags.append('reached error passive status TX')
-                        if message.data[1] & (1 << 6):
+                        if message_data[1] & (1 << 6):
                             error_flags.append('recovered to error active state')
-                    if message.header.can_id & (1 << 3):
+                    if message.can_id & (1 << 3):
                         error_flags.append('protocol violations')
-                        if message.data[2] & (1 << 0):
+                        if message_data[2] & (1 << 0):
                             error_flags.append('single bit error')
-                        if message.data[2] & (1 << 1):
+                        if message_data[2] & (1 << 1):
                             error_flags.append('frame format error')
-                        if message.data[2] & (1 << 2):
+                        if message_data[2] & (1 << 2):
                             error_flags.append('bit stuffing error')
-                        if message.data[2] & (1 << 3):
+                        if message_data[2] & (1 << 3):
                             error_flags.append('unable to send dominant bit')
-                        if message.data[2] & (1 << 4):
+                        if message_data[2] & (1 << 4):
                             error_flags.append('unable to send recessive bit')
-                        if message.data[2] & (1 << 5):
+                        if message_data[2] & (1 << 5):
                             error_flags.append('bus overload')
-                        if message.data[2] & (1 << 6):
+                        if message_data[2] & (1 << 6):
                             error_flags.append('active error announcement')
-                        if message.data[2] & (1 << 7):
+                        if message_data[2] & (1 << 7):
                             error_flags.append('error occurred on transmission')
-                        if message.data[3] == 0x03:
+                        if message_data[3] == 0x03:
                             error_flags.append('start of frame')
-                        if message.data[3] == 0x02:
+                        if message_data[3] == 0x02:
                             error_flags.append('ID bits 28 - 21 (SFF: 10 - 3)')
-                        if message.data[3] == 0x06:
+                        if message_data[3] == 0x06:
                             error_flags.append('ID bits 20 - 18 (SFF: 2 - 0 )')
-                        if message.data[3] == 0x04:
+                        if message_data[3] == 0x04:
                             error_flags.append('substitute RTR (SFF: RTR)')
-                        if message.data[3] == 0x05:
+                        if message_data[3] == 0x05:
                             error_flags.append('identifier extension')
-                        if message.data[3] == 0x07:
+                        if message_data[3] == 0x07:
                             error_flags.append('ID bits 17-13')
-                        if message.data[3] == 0x0F:
+                        if message_data[3] == 0x0F:
                             error_flags.append('ID bits 12-5')
-                        if message.data[3] == 0x0E:
+                        if message_data[3] == 0x0E:
                             error_flags.append('ID bits 4-0')
-                        if message.data[3] == 0x0C:
+                        if message_data[3] == 0x0C:
                             error_flags.append('RTR')
-                        if message.data[3] == 0x0D:
+                        if message_data[3] == 0x0D:
                             error_flags.append('reserved bit 1')
-                        if message.data[3] == 0x09:
+                        if message_data[3] == 0x09:
                             error_flags.append('reserved bit 0')
-                        if message.data[3] == 0x0B:
+                        if message_data[3] == 0x0B:
                             error_flags.append('data length code')
-                        if message.data[3] == 0x0A:
+                        if message_data[3] == 0x0A:
                             error_flags.append('data section')
-                        if message.data[3] == 0x08:
+                        if message_data[3] == 0x08:
                             error_flags.append('CRC sequence')
-                        if message.data[3] == 0x18:
+                        if message_data[3] == 0x18:
                             error_flags.append('CRC delimiter')
-                        if message.data[3] == 0x19:
+                        if message_data[3] == 0x19:
                             error_flags.append('ACK slot')
-                        if message.data[3] == 0x1B:
+                        if message_data[3] == 0x1B:
                             error_flags.append('ACK delimiter')
-                        if message.data[3] == 0x1A:
+                        if message_data[3] == 0x1A:
                             error_flags.append('end of frame')
-                        if message.data[3] == 0x12:
+                        if message_data[3] == 0x12:
                             error_flags.append('intermission')
-                    if message.header.can_id & (1 << 4):
+                    if message.can_id & (1 << 4):
                         error_flags.append('transceiver status')
-                        if message.data[4] == 0x04:
+                        if message_data[4] == 0x04:
                             error_flags.append('CANH no wire')
-                        if message.data[4] == 0x05:
+                        if message_data[4] == 0x05:
                             error_flags.append('CANH short to BAT')
-                        if message.data[4] == 0x06:
+                        if message_data[4] == 0x06:
                             error_flags.append('CANH short to VCC')
-                        if message.data[4] == 0x07:
+                        if message_data[4] == 0x07:
                             error_flags.append('CANH short to GND')
-                        if message.data[4] == 0x40:
+                        if message_data[4] == 0x40:
                             error_flags.append('CANL no wire')
-                        if message.data[4] == 0x50:
+                        if message_data[4] == 0x50:
                             error_flags.append('CANL short to BAT')
-                        if message.data[4] == 0x60:
+                        if message_data[4] == 0x60:
                             error_flags.append('CANL short to VCC')
-                        if message.data[4] == 0x70:
+                        if message_data[4] == 0x70:
                             error_flags.append('CANL short to GND')
-                        if message.data[4] == 0x80:
+                        if message_data[4] == 0x80:
                             error_flags.append('CANL short to CANH')
-                    if message.header.can_id & (1 << 5):
+                    if message.can_id & (1 << 5):
                         error_flags.append('received no ACK on transmission')
-                    if message.header.can_id & (1 << 6):
+                    if message.can_id & (1 << 6):
                         error_flags.append('bus off')
-                    if message.header.can_id & (1 << 7):
+                    if message.can_id & (1 << 7):
                         error_flags.append('bus error')
-                    if message.header.can_id & (1 << 8):
+                    if message.can_id & (1 << 8):
                         error_flags.append('controller restarted')
-                    error_flags.append(f'TX error count: {message.data[6]}')
-                    error_flags.append(f'RX error count: {message.data[7]}')
-                    return ' '.join(f'{i:02X}' for i in message.data) + ' (' + ', '.join(error_flags) + ')'
+                    error_flags.append(f'TX error count: {message_data[6]}')
+                    error_flags.append(f'RX error count: {message_data[7]}')
+                    return ' '.join(f'{i:02X}' for i in message_data) + ' (' + ', '.join(error_flags) + ')'
                 else:
-                    return ' '.join(f'{i:02X}' for i in message.data)
+                    return ' '.join(f'{i:02X}' for i in memoryview(message))
         if role == Qt.ItemDataRole.FontRole:
             return self.monospace_font
         return None
@@ -600,13 +650,13 @@ class MessageTableModel(QAbstractTableModel):
 
 
 class BitTimingDialog(QDialog):
-    setBitTiming = Signal(GSDeviceBitTiming)
-    setDataBitTiming = Signal(GSDeviceBitTiming)
+    setBitTiming = Signal(CandleBitTiming)
+    setDataBitTiming = Signal(CandleBitTiming)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle('Bit Timing Configuration')
-        self.channel_info = GSDeviceBTConstExtended(GSCANFeature(-1), -1, -1, -1, -1, -1, -1, -1, -1, -1)
+        self.channel_info = CandleBTConstExtended(None, -1, -1, -1, -1, -1, -1, -1, -1, -1)
         self.bit_timing: Optional[Union[BitTiming, BitTimingFd]] = None
 
         vbox_layout = QVBoxLayout()
@@ -751,21 +801,20 @@ class BitTimingDialog(QDialog):
                 self.result_label.setText(f'Nominal Bit Rate {self.bit_timing.bitrate / 1e3} kbit/s\tNominal Sample Point {self.bit_timing.sample_point}%')
                 self.ok_button.setEnabled(True)
 
-    @Slot(GSDeviceBTConstExtended)
-    def update_channel_info(self, info: GSDeviceBTConstExtended) -> None:
+    @Slot(CandleBTConstExtended)
+    def update_channel_info(self, info: CandleBTConstExtended) -> None:
         self.channel_info = info
-        self.enable_fd_checkbox.setEnabled(bool(self.channel_info.feature & GSCANFeature.FD))
+        self.enable_fd_checkbox.setEnabled(bool(self.channel_info.feature.fd))
         self.calculate_bit_timing()
 
     @Slot()
     def set_bit_timing(self) -> None:
         if self.bit_timing is not None:
             if isinstance(self.bit_timing, BitTiming):
-                self.setBitTiming.emit(GSDeviceBitTiming(1, self.bit_timing.tseg1 - 1, self.bit_timing.tseg2, self.bit_timing.sjw, self.bit_timing.brp))
+                self.setBitTiming.emit(CandleBitTiming(1, self.bit_timing.tseg1 - 1, self.bit_timing.tseg2, self.bit_timing.sjw, self.bit_timing.brp))
             if isinstance(self.bit_timing, BitTimingFd):
-                self.setBitTiming.emit(
-                    GSDeviceBitTiming(1, self.bit_timing.nom_tseg1 - 1, self.bit_timing.nom_tseg2, self.bit_timing.nom_sjw, self.bit_timing.nom_brp))
-                self.setDataBitTiming.emit(GSDeviceBitTiming(1, self.bit_timing.data_tseg1 - 1, self.bit_timing.data_tseg2, self.bit_timing.data_sjw, self.bit_timing.data_brp))
+                self.setBitTiming.emit(CandleBitTiming(1, self.bit_timing.nom_tseg1 - 1, self.bit_timing.nom_tseg2, self.bit_timing.nom_sjw, self.bit_timing.nom_brp))
+                self.setDataBitTiming.emit(CandleBitTiming(1, self.bit_timing.data_tseg1 - 1, self.bit_timing.data_tseg2, self.bit_timing.data_sjw, self.bit_timing.data_brp))
             self.accept()
 
 
@@ -972,14 +1021,20 @@ class MainWindow(QWidget):
     @Slot()
     def send_message(self) -> None:
         data = self.input_panel.data()
-        header = GSHostFrameHeader(0, self.send_id_spin_box.value(), self.send_dlc_selector.currentIndex(), self.channel_selector.currentIndex(), GSCANFlag(0))
-        header.is_extended_id = self.send_eff_checkbox.isChecked()
-        header.is_remote_frame = self.send_rtr_checkbox.isChecked()
-        header.is_error_frame = self.send_err_checkbox.isChecked()
-        header.is_fd = self.send_fd_checkbox.isEnabled() and self.send_fd_checkbox.isChecked()
-        header.is_bitrate_switch = self.send_brs_checkbox.isEnabled() and self.send_brs_checkbox.isChecked()
-        header.is_error_state_indicator = self.send_esi_checkbox.isEnabled() and self.send_esi_checkbox.isChecked()
-        self.candle_manager.send_message(GSHostFrame(header, data, 0))
+        self.candle_manager.send_message(api.CandleCanFrame(
+            api.CandleFrameType(
+                rx=False,
+                extended_id=self.send_eff_checkbox.isChecked(),
+                remote_frame=self.send_rtr_checkbox.isChecked(),
+                error_frame=self.send_err_checkbox.isChecked(),
+                fd=self.send_fd_checkbox.isChecked(),
+                bitrate_switch=self.send_brs_checkbox.isChecked(),
+                error_state_indicator=self.send_esi_checkbox.isChecked()
+            ),
+            self.send_id_spin_box.value(),
+            self.send_dlc_selector.currentIndex(),
+            data
+        ))
 
     @Slot(int, int)
     def handle_row_inserted(self, first_row: int, last_row: int) -> None:
@@ -998,9 +1053,9 @@ class MainWindow(QWidget):
     @Slot(bool)
     def handle_send_fd_checked(self, checked: bool) -> None:
         self.send_dlc_selector.clear()
-        self.send_dlc_selector.addItems([str(i) for i in DLC2LEN[:9]])
+        self.send_dlc_selector.addItems([str(i) for i in ISO_DLC[:9]])
         if checked:
-            self.send_dlc_selector.addItems([str(i) for i in DLC2LEN[9:]])
+            self.send_dlc_selector.addItems([str(i) for i in ISO_DLC[9:]])
 
     @Slot(CandleManagerState)
     def handle_state_transition(self, _from_state: CandleManagerState, to_state: CandleManagerState) -> None:
@@ -1063,14 +1118,14 @@ class MainWindow(QWidget):
             self.bit_timing_button.setEnabled(True)
             self.start_button.setEnabled(True)
             try:
-                self.fd_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
-                self.loopback_checkbox.setEnabled(self.candle_manager.channel.is_loop_back_supported)
-                self.listen_only_checkbox.setEnabled(self.candle_manager.channel.is_listen_only_supported)
-                self.triple_sample_checkbox.setEnabled(self.candle_manager.channel.is_triple_sample_supported)
-                self.one_shot_checkbox.setEnabled(self.candle_manager.channel.is_one_shot_supported)
-                self.bit_error_reporting_checkbox.setEnabled(self.candle_manager.channel.is_bit_error_reporting_supported)
-                self.termination_checkbox.setEnabled(self.candle_manager.channel.is_termination_supported)
-                if self.candle_manager.channel.is_termination_supported:
+                self.fd_checkbox.setEnabled(self.candle_manager.channel.feature.fd)
+                self.loopback_checkbox.setEnabled(self.candle_manager.channel.feature.loop_back)
+                self.listen_only_checkbox.setEnabled(self.candle_manager.channel.feature.listen_only)
+                self.triple_sample_checkbox.setEnabled(self.candle_manager.channel.feature.triple_sample)
+                self.one_shot_checkbox.setEnabled(self.candle_manager.channel.feature.one_shot)
+                self.bit_error_reporting_checkbox.setEnabled(self.candle_manager.channel.feature.bit_error_reporting)
+                self.termination_checkbox.setEnabled(self.candle_manager.channel.feature.termination)
+                if self.candle_manager.channel.feature.termination:
                     self.termination_checkbox.setChecked(self.candle_manager.channel.termination)
             except AttributeError:
                 pass
@@ -1090,7 +1145,7 @@ class MainWindow(QWidget):
             self.random_data_button.setEnabled(False)
             self.start_button.setChecked(False)
             try:
-                self.fd_checkbox.setChecked(self.candle_manager.channel.is_fd_supported)
+                self.fd_checkbox.setChecked(self.candle_manager.channel.feature.fd)
             except AttributeError:
                 pass
         if to_state == CandleManagerState.Running:
@@ -1110,9 +1165,9 @@ class MainWindow(QWidget):
             self.send_eff_checkbox.setEnabled(True)
             self.send_rtr_checkbox.setEnabled(True)
             self.send_err_checkbox.setEnabled(True)
-            self.send_fd_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
-            self.send_brs_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
-            self.send_esi_checkbox.setEnabled(self.candle_manager.channel.is_fd_supported)
+            self.send_fd_checkbox.setEnabled(self.candle_manager.channel.feature.fd)
+            self.send_brs_checkbox.setEnabled(self.candle_manager.channel.feature.fd)
+            self.send_esi_checkbox.setEnabled(self.candle_manager.channel.feature.fd)
             self.input_panel.setEnabled(True)
             self.send_once_button.setEnabled(True)
             self.send_repeat_button.setEnabled(True)
@@ -1123,9 +1178,9 @@ class MainWindow(QWidget):
             self.handle_extended_id_checked(self.send_eff_checkbox.isChecked())
 
     @Slot(list)
-    def handle_scan_result(self, result: List[CandleDevice]) -> None:
+    def handle_scan_result(self, result: List[api.CandleDevice]) -> None:
         self.device_selector.clear()
-        self.device_selector.addItems([str(i) for i in result])
+        self.device_selector.addItems([f'{i.vendor_id:04X}:{i.product_id:04X} - {i.manufacturer} - {i.product} - {i.serial_number}' for i in result])
 
     @Slot(int, int, int)
     def handle_select_device_result(self, hw_version, sw_version, channel_num) -> None:

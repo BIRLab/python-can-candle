@@ -15,7 +15,7 @@ keywords = ["gs_usb", "can", "candleLight"]
 dynamic = ["version"]
 dependencies = [
   "python-can",
-  "pyusb"
+  "candle-api == 0.0.6"
 ]
 
 [project.urls]
@@ -29,7 +29,6 @@ candle = "candle.candle_bus:CandleBus"
 candle_viewer = "candle.candle_viewer:main"
 
 [project.optional-dependencies]
-libusb = ["libusb"]
 viewer = ["PySide6"]
 
 [tool.setuptools.packages.find]

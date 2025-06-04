@@ -1,3 +1,3 @@
-__version__ = "1.0.5.3"
+__version__ = "1.1.0.0"
 
 from candle.candle_bus import CandleBus

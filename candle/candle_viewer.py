@@ -230,7 +230,7 @@ class CandleManager(QObject):
         with self.state_transition_mutex:
             if self.state == CandleManagerState.Configuration:
                 try:
-                    self.channel.start(fd=fd, loop_back=loopback, listen_only=listen_only, triple_sample=triple_sample, one_shot=one_shot, bit_error_reporting=bit_error_reporting)
+                    self.channel.start(fd=fd, loop_back=loopback, listen_only=listen_only, triple_sample=triple_sample, one_shot=one_shot, hardware_timestamp=self.channel.feature.hardware_timestamp, bit_error_reporting=bit_error_reporting)
                 except RuntimeError as e:
                     self.handle_exception(str(e))
                 else:

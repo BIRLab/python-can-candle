@@ -1,13 +1,12 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Union
 import can
 import candle_api as api
-
 
 ISO_DLC = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
 
 
 class CandleBus(can.bus.BusABC):
-    def __init__(self, channel: int, can_filters: Optional[can.typechecking.CanFilters] = None,
+    def __init__(self, channel: Union[int, str], can_filters: Optional[can.typechecking.CanFilters] = None,
                  bitrate: int = 1000000, sample_point: float = 87.5,
                  data_bitrate: int = 5000000, data_sample_point: float = 87.5,
                  fd: bool = False, loop_back: bool = False, listen_only: bool = False,
@@ -16,30 +15,24 @@ class CandleBus(can.bus.BusABC):
                  manufacture: Optional[str] = None, product: Optional[str] = None,
                  serial_number: Optional[str] = None, **kwargs) -> None:
 
-        for dev in api.list_device():
-            if vid is not None and dev.vendor_id != vid:
-                continue
-            if pid is not None and dev.product_id != pid:
-                continue
-            if manufacture is not None and dev.manufacturer != manufacture:
-                continue
-            if product is not None and dev.product != product:
-                continue
-            if serial_number is not None and dev.serial_number != serial_number:
-                continue
-
-            self._device = dev
-            break
+        # Parse channel.
+        if isinstance(channel, str):
+            serial_number, channel_number = channel.split(':')
+            self._channel_number = int(channel_number)
+        elif isinstance(channel, int):
+            self._channel_number = channel
         else:
-            raise can.exceptions.CanInitializationError('Device not found!')
+            raise TypeError("channel must be of type str or int")
+
+        # Find the device.
+        self._device = self._find_device(vid, pid, manufacture, product, serial_number)
 
         # Open the device.
         self._device.open()
 
         # Get the channel.
-        self._channel_number = channel
-        self._channel = self._device[channel]
-        self.channel_info = f'[{self._device.serial_number}]: channel {channel}'
+        self._channel = self._device[self._channel_number]
+        self.channel_info = f'{self._device.serial_number}:{self._channel_number}'
 
         # Reset channel.
         self._channel.reset()
@@ -106,16 +99,35 @@ class CandleBus(can.bus.BusABC):
             **kwargs,
         )
 
+    @staticmethod
+    def _find_device(vid: Optional[int] = None, pid: Optional[int] = None, manufacture: Optional[str] = None,
+                     product: Optional[str] = None, serial_number: Optional[str] = None) -> api.CandleDevice:
+        for dev in api.list_device():
+            if vid is not None and dev.vendor_id != vid:
+                continue
+            if pid is not None and dev.product_id != pid:
+                continue
+            if manufacture is not None and dev.manufacturer != manufacture:
+                continue
+            if product is not None and dev.product != product:
+                continue
+            if serial_number is not None and dev.serial_number != serial_number:
+                continue
+            return dev
+        else:
+            raise can.exceptions.CanInitializationError('Device not found!')
+
     def _recv_internal(
-        self, timeout: Optional[float]
+            self, timeout: Optional[float]
     ) -> Tuple[Optional[can.Message], bool]:
+        frame: Optional[api.CandleCanFrame] = None
         if timeout is None:
             frame = self._channel.receive_nowait()
         else:
             try:
                 frame = self._channel.receive(timeout)
             except TimeoutError:
-                frame = None
+                pass
 
         if frame is not None:
             msg = can.Message(
@@ -125,7 +137,7 @@ class CandleBus(can.bus.BusABC):
                 is_remote_frame=frame.frame_type.remote_frame,
                 is_error_frame=frame.frame_type.error_frame,
                 channel=self._channel_number,
-                dlc=frame.size,   # https://github.com/hardbyte/python-can/issues/749
+                dlc=frame.size,  # https://github.com/hardbyte/python-can/issues/749
                 data=bytearray(frame),
                 is_fd=frame.frame_type.fd,
                 is_rx=frame.frame_type.rx,
@@ -162,6 +174,13 @@ class CandleBus(can.bus.BusABC):
     def shutdown(self):
         self._channel.reset()
         super().shutdown()
+
+    @staticmethod
+    def _detect_available_configs() -> List[can.typechecking.AutoDetectedConfig]:
+        return [{
+            'interface': 'candle',
+            'channel': f'{d.serial_number}:{i}'
+        } for d in api.list_device() for i in range(len(d))]
 
 
 __all__ = ['CandleBus']

@@ -43,7 +43,7 @@ class CandleBus(can.bus.BusABC):
 
         # Set bit timing.
         props_seg = 1
-        if self._channel.feature.fd:
+        if fd and self._channel.feature.fd:
             bit_timing_fd = can.BitTimingFd.from_sample_point(
                 f_clock=self._channel.clock_frequency,
                 nom_bitrate=bitrate,

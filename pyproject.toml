@@ -14,8 +14,8 @@ license = {file = "LICENSE"}
 keywords = ["gs_usb", "can", "candleLight"]
 dynamic = ["version"]
 dependencies = [
-  "python-can",
-  "candle-api == 0.0.6"
+  "python-can >= 4.0.0",
+  "candle-api == 0.0.8"
 ]
 
 [project.urls]
@@ -25,15 +25,9 @@ Issues = "https://github.com/chinaheyu/python-can-candle/issues"
 [project.entry-points."can.interface"]
 candle = "candle.candle_bus:CandleBus"
 
-[project.scripts]
-candle_viewer = "candle.candle_viewer:main"
-
-[project.optional-dependencies]
-viewer = ["PySide6"]
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["candle", "candle.candle_bus"]
+include = ["candle"]
 namespaces = false
 
 [tool.setuptools.dynamic]
@@ -41,25 +35,3 @@ version = {attr = "candle.__version__"}
 
 [tool.setuptools.package-data]
 candle = ["py.typed"]
-
-[tool.mypy]
-packages = "candle"
-exclude = [
-  "candle/candle_viewer.py",
-]
-
-[[tool.mypy.overrides]]
-module = "usb.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "libusb.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "PySide6.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "candle_api.*"
-ignore_missing_imports = true

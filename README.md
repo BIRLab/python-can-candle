@@ -18,23 +18,13 @@ Support **Multichannel** and **CAN FD**.
 pip install python-can-candle
 ```
 
-We also provide a handy GUI tool, which you can install with the following command.
-
-```shell
-pip install python-can-candle[viewer]
-```
-
-Once installed you can launch it via `candle_viewer` or `python -m candle.candle_viewer` and you will see the following window.
-
-![Candle Viewer](https://raw.githubusercontent.com/BIRLab/python-can-candle/main/assets/viewer.png)
-
 ## Example
 
 ### Send and Receive
 
 ```python
 import can
-from candle.candle_bus import CandleBus
+from candle import CandleBus
 
 # Create a CandleBus instance.
 with CandleBus(channel=0, fd=True, bitrate=1000000, data_bitrate=5000000) as bus:
@@ -61,13 +51,15 @@ This library implements the [plugin interface](https://python-can.readthedocs.io
 
 ```python
 import can
-from candle.candle_bus import CandleBus
+from candle import CandleBus
 
 # Create a CandleBus instance in the python-can API.
 with can.Bus(interface='candle', channel=0, fd=True, bitrate=1000000, data_bitrate=5000000, ignore_config=True) as bus:
     # Bus is an instance of CandleBus.
     assert isinstance(bus, CandleBus)
 ```
+
+Set `ignore_config=True` is recommended to prevent potential type casts. 
 
 ### Performance
 

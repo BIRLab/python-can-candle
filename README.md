@@ -20,31 +20,6 @@ pip install python-can-candle
 
 ## Example
 
-### Send and Receive
-
-```python
-import can
-from candle import CandleBus
-
-# Create a CandleBus instance.
-with CandleBus(channel=0, fd=True, bitrate=1000000, data_bitrate=5000000) as bus:
-    # Send normal can message without data.
-    bus.send(can.Message(arbitration_id=1, is_extended_id=False))
-
-    # Send normal can message with extended id
-    bus.send(can.Message(arbitration_id=2, is_extended_id=True))
-
-    # Send normal can message with data.
-    bus.send(can.Message(arbitration_id=3, is_extended_id=False, data=[i for i in range(8)]))
-
-    # Send can fd message.
-    bus.send(can.Message(arbitration_id=4, is_extended_id=False, is_fd=True, bitrate_switch=True, error_state_indicator=True, data=[i for i in range(64)]))
-
-    # Read messages from bus.
-    for message in bus:
-        print(message)
-```
-
 ### Using with python-can
 
 This library implements the [plugin interface](https://python-can.readthedocs.io/en/stable/plugin-interface.html) in [python-can](https://pypi.org/project/python-can/), aiming to replace the [gs_usb](https://python-can.readthedocs.io/en/stable/interfaces/gs_usb.html) interface within it.
@@ -54,12 +29,61 @@ import can
 from candle import CandleBus
 
 # Create a CandleBus instance in the python-can API.
-with can.Bus(interface='candle', channel=0, fd=True, bitrate=1000000, data_bitrate=5000000, ignore_config=True) as bus:
+with can.Bus(interface='candle', channel=0, ignore_config=True) as bus:
     # Bus is an instance of CandleBus.
     assert isinstance(bus, CandleBus)
 ```
 
-Set `ignore_config=True` is recommended to prevent potential type casts. 
+Set `ignore_config=True` is recommended to prevent potential type casts.
+
+### Configurations
+
+You can configure the device by appending the following parameters when creating the `can.Bus`.
+
+- bitrate: int, defaults to 1000000
+- sample_point: float, defaults to 87.5
+- data_bitrate: int, defaults to 5000000
+- data_sample_point: float, defaults to 87.5
+- fd: bool, defaults to False
+- loop_back: bool, defaults to False
+- listen_only: bool, defaults to False
+- triple_sample: bool, defaults to False
+- one_shot: bool, defaults to False
+- bit_error_reporting: bool, defaults to False
+- termination: bool or None, defaults to None
+
+For example, create a canfd device with 1M bitrate and 5M data bitrate.
+
+```python
+with can.Bus(interface='candle', channel=0, fd=True, bitrate=1000000, data_bitrate=5000000, ignore_config=True) as bus:
+    ...
+```
+
+### Connect multiple devices
+
+When connecting multiple devices at the same time, you can set channel to `serial_number:channel` to create the specified `can.Bus`.
+
+```python
+with can.Bus(interface='candle', channel='208233AD5003:0', ignore_config=True) as bus:
+    ...
+```
+
+You can also select devices by appending some additional parameters.
+
+- vid: int, vendor ID
+- pid: int, product ID
+- manufacture: str, manufacture string
+- product: str, product string
+- serial_number: str, serial number
+
+### Device Discovery
+
+Detect all available channels.
+
+```python
+channels = can.detect_available_configs('candle')
+print(channels)
+```
 
 ### Performance
 

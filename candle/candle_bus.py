@@ -1,12 +1,14 @@
 from typing import Optional, Tuple, List, Union
 import can
+from can.typechecking import CanFilters, AutoDetectedConfig
 import candle_api as api
+
 
 ISO_DLC = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
 
 
 class CandleBus(can.bus.BusABC):
-    def __init__(self, channel: Union[int, str], can_filters: Optional[can.typechecking.CanFilters] = None,
+    def __init__(self, channel: Union[int, str], can_filters: Optional[CanFilters] = None,
                  bitrate: int = 1000000, sample_point: float = 87.5,
                  data_bitrate: int = 5000000, data_sample_point: float = 87.5,
                  fd: bool = False, loop_back: bool = False, listen_only: bool = False,
@@ -16,9 +18,12 @@ class CandleBus(can.bus.BusABC):
                  serial_number: Optional[str] = None, **kwargs) -> None:
 
         # If ignore_config is not set, can.util.cast_from_string may cause unexpected type conversions.
-        manufacture = str(manufacture)
-        product = str(product)
-        serial_number = str(serial_number)
+        if manufacture is not None:
+            manufacture = str(manufacture)
+        if product is not None:
+            product = str(product)
+        if serial_number is not None:
+            serial_number = str(serial_number)
 
         # Parse channel.
         if isinstance(channel, str):
@@ -181,11 +186,11 @@ class CandleBus(can.bus.BusABC):
         super().shutdown()
 
     @staticmethod
-    def _detect_available_configs() -> List[can.typechecking.AutoDetectedConfig]:
-        return [{
-            'interface': 'candle',
-            'channel': f'{d.serial_number}:{i}'
-        } for d in api.list_device() for i in range(len(d))]
+    def _detect_available_configs() -> List[AutoDetectedConfig]:
+        return [AutoDetectedConfig(
+            interface='candle',
+            channel=f'{d.serial_number}:{i}'
+        ) for d in api.list_device() for i in range(len(d))]
 
 
 __all__ = ['CandleBus']

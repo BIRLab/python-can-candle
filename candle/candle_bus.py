@@ -15,6 +15,11 @@ class CandleBus(can.bus.BusABC):
                  manufacture: Optional[str] = None, product: Optional[str] = None,
                  serial_number: Optional[str] = None, **kwargs) -> None:
 
+        # If ignore_config is not set, can.util.cast_from_string may cause unexpected type conversions.
+        manufacture = str(manufacture)
+        product = str(product)
+        serial_number = str(serial_number)
+
         # Parse channel.
         if isinstance(channel, str):
             serial_number, channel_number = channel.split(':')

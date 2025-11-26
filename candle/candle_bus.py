@@ -80,16 +80,28 @@ class CandleBus(can.bus.BusABC):
                 ch.set_termination(termination)
 
         props_seg = 1
+
+        def get_cfg(param, idx, default):
+            if isinstance(param, (list, tuple)):
+                return param[idx] if idx < len(param) else default
+            return param
+
         if fd:
-            for ch in self._channels:
+            for i, ch in enumerate(self._channels):
+                # Resolve per-channel configs
+                br = get_cfg(bitrate, i, 1000000)
+                sp = get_cfg(sample_point, i, 87.5)
+                dbr = get_cfg(data_bitrate, i, 5000000)
+                dsp = get_cfg(data_sample_point, i, 87.5)
+
                 if ch.feature.fd:
                     # New: Configure FD bit timing per channel when supported.
                     bit_timing_fd = can.BitTimingFd.from_sample_point(
                         f_clock=ch.clock_frequency,
-                        nom_bitrate=bitrate,
-                        nom_sample_point=sample_point,
-                        data_bitrate=data_bitrate,
-                        data_sample_point=data_sample_point
+                        nom_bitrate=br,
+                        nom_sample_point=sp,
+                        data_bitrate=dbr,
+                        data_sample_point=dsp
                     )
                     ch.set_bit_timing(
                         props_seg,
@@ -109,8 +121,8 @@ class CandleBus(can.bus.BusABC):
                     # New: Fallback to classic CAN bit timing for channels without FD.
                     bit_timing = can.BitTiming.from_sample_point(
                         f_clock=ch.clock_frequency,
-                        bitrate=bitrate,
-                        sample_point=sample_point,
+                        bitrate=br,
+                        sample_point=sp,
                     )
                     ch.set_bit_timing(
                         props_seg,
@@ -120,12 +132,16 @@ class CandleBus(can.bus.BusABC):
                         bit_timing.brp
                     )
         else:
-            for ch in self._channels:
+            for i, ch in enumerate(self._channels):
+                # Resolve per-channel configs
+                br = get_cfg(bitrate, i, 1000000)
+                sp = get_cfg(sample_point, i, 87.5)
+
                 # New: Classic CAN bit timing configuration per channel.
                 bit_timing = can.BitTiming.from_sample_point(
                     f_clock=ch.clock_frequency,
-                    bitrate=bitrate,
-                    sample_point=sample_point,
+                    bitrate=br,
+                    sample_point=sp,
                 )
                 ch.set_bit_timing(
                     props_seg,

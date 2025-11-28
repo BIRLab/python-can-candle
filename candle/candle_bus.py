@@ -1,3 +1,4 @@
+import time
 from typing import Optional, Tuple, List, Union
 import can
 from can.typechecking import CanFilters, AutoDetectedConfig
@@ -140,8 +141,9 @@ class CandleBus(can.bus.BusABC):
                 pass
 
         if frame is not None:
+            timestamp = frame.timestamp if self._channel.feature.hardware_timestamp  else time.monotonic()
             msg = can.Message(
-                timestamp=frame.timestamp,
+                timestamp=timestamp,
                 arbitration_id=frame.can_id,
                 is_extended_id=frame.frame_type.extended_id,
                 is_remote_frame=frame.frame_type.remote_frame,

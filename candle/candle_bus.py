@@ -202,19 +202,17 @@ class CandleBus(can.bus.BusABC):
     def send(self, msg: can.Message, timeout: Optional[float] = None) -> None:
         # Parse channel.
         target_channels: Tuple[api.CandleChannel, ...]
-        if len(self._channel_numbers) == 1:
-            # There is only one channel.
+        if msg.channel is None:
             target_channels = (self._channels[self._channel_numbers[0]],)
+        elif isinstance(msg.channel, str):
+            serial_number, channel_number = msg.channel.split(':')
+            target_channels = (self._channels[int(channel_number)],)
+        elif isinstance(msg.channel, int):
+            target_channels = (self._channels[msg.channel],)
+        elif isinstance(msg.channel, Sequence):
+            target_channels = tuple(self._channels[i] for i in msg.channel)
         else:
-            if isinstance(msg.channel, str):
-                serial_number, channel_number = msg.channel.split(':')
-                target_channels = (self._channels[int(channel_number)],)
-            elif isinstance(msg.channel, int):
-                target_channels = (self._channels[msg.channel],)
-            elif isinstance(msg.channel, Sequence):
-                target_channels = tuple(self._channels[i] for i in msg.channel)
-            else:
-                raise TypeError("Channel must be of type int, str or Sequence[int]")
+            raise TypeError("Channel must be of type int, str or Sequence[int]")
 
         if timeout is None:
             timeout = 1.0

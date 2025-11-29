@@ -89,49 +89,48 @@ print(channels)
 
 This driver now supports opening multiple channels from the same device in a single `CandleBus` instance.
 
-- Pass a list of channels belonging to the same device, e.g. `['SERIAL:0', 'SERIAL:1']`.
-- Alternatively, pass a list of indices with `serial_number=SERIAL`.
-- A single instance must NOT mix channels from different devices.
+- Pass a list of channel indices belonging to the same device, e.g. `channel=[0, 1]`.
+- For multiple devices, pass `serial_number=SERIAL` to select the device by serial number.
+- Configure each channel separately with `channel_configs`.
 
-```python
-import can
-from candle import CandleBus
+Create a CandleBus instance with multiple channels.
 
-# Option A: list of "serial:idx" strings
-bus = CandleBus(channel=['208233AD5003:0', '208233AD5003:1'], fd=True, bitrate=1000000, data_bitrate=5000000, loop_back=True)
+```pycon
+bus = CandleBus(channel=[0, 1], serial_number='208233AD5003', bitrate=1000000)
+```
 
-# Option B: list of indices with explicit serial number
-bus = CandleBus(channel=[0, 1], serial_number='208233AD5003', fd=True, bitrate=1000000, data_bitrate=5000000, loop_back=True)
+Create and configure channels with different bitrates.
 
-# Send to a specific channel by setting msg.channel
-m0 = can.Message(arbitration_id=0x100, data=b'\x00'*8, is_fd=True)
-m0.channel = 0
-bus.send(m0)
+```pycon
+bus = CandleBus(channel=[0, 1], serial_number='208233AD5003', channel_configs={0: {'bitrate': 500000}, 1: {'bitrate': 1000000})
+```
 
-m1 = can.Message(arbitration_id=0x101, data=b'\x01'*8, is_fd=True)
-m1.channel = 1
-bus.send(m1)
+Send to a specific channel.
 
-# Receive frames: msg.channel indicates the source channel
-rx = bus.recv(timeout=0.5)
-print(rx.channel, hex(rx.arbitration_id))
+```pycon
+msg = can.Message(arbitration_id=0x100, channel=1, data=[0x1, 0x2, 0x3, 0x4])
+bus.send(msg)
+```
 
-bus.shutdown()
+Send to multiple channels.
+
+```pycon
+msg = can.Message(arbitration_id=0x100, channel=[0, 1], data=[0x1, 0x2, 0x3, 0x4])
+bus.send(msg)
+```
+
+Distinguish channels in received messages.
+
+```pycon
+msg = bus.recv()
+print(f'Received message on channel {msg.channel}.')
 ```
 
 ### Notes on multi-channel behavior
 
-- A single `CandleBus` instance manages multiple channels of one device using one device handle.
-- `send()` routes frames to the target channel based on `msg.channel` (int, `"SERIAL:idx"`, or `"idx"`).
+- `send()` routes frames to the target channel based on `msg.channel` (int, `"SERIAL:idx"`, or `Sequence[int]`).
 - `recv()` returns `Message.channel` set to the source channel number.
-- When `msg.channel` is not set, `send()` defaults to the first managed channel.
-- To test multiple devices simultaneously, create one `CandleBus` per device.
-
-### Backward compatibility
-
-- Existing single-channel usage is unchanged; `channel=0` or `channel='SERIAL:0'` still works.
-- `can.detect_available_configs('candle')` continues to report channels as `serial:idx` strings.
-- The stress test `python -m candle.stress` (single-channel) remains compatible.
+- When `msg.channel` is not set, `send()` defaults to the first channel.
 
 ### Performance
 
@@ -142,7 +141,7 @@ For single-channel performance:
 python -m candle.stress
 ```
 
-For multi-channel and multi-device performance and correctness verification:
+For multi-channel performance:
 ```shell
 python -m candle.stress_multichannel
 ```

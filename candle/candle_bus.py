@@ -43,6 +43,7 @@ class CandleBus(can.bus.BusABC):
 
         # Get the channel.
         self._channel = self._device[self._channel_number]
+        self._hardware_timestamp = self._channel.feature.hardware_timestamp
         self.channel_info = f'{self._device.serial_number}:{self._channel_number}'
 
         # Reset channel.
@@ -141,9 +142,8 @@ class CandleBus(can.bus.BusABC):
                 pass
 
         if frame is not None:
-            timestamp = frame.timestamp if self._channel.feature.hardware_timestamp  else time.monotonic()
             msg = can.Message(
-                timestamp=timestamp,
+                timestamp=frame.timestamp if self._hardware_timestamp else time.monotonic(),
                 arbitration_id=frame.can_id,
                 is_extended_id=frame.frame_type.extended_id,
                 is_remote_frame=frame.frame_type.remote_frame,

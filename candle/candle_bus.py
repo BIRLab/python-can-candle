@@ -182,9 +182,8 @@ class CandleBus(can.bus.BusABC):
             if frame is not None:
                 return convert_frame(i, frame, self._hardware_timestamps[i]), False
 
-        # Do not block if timeout is None.
         if timeout is None:
-            return None, False
+            timeout = 2**32 - 1
 
         # Block until a frame is available.
         if not self._device.wait_for_frame(timeout):

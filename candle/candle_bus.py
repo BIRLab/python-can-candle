@@ -47,7 +47,7 @@ class CandleBus(can.bus.BusABC):
                  termination: Optional[bool] = None, vid: Optional[int] = None, pid: Optional[int] = None,
                  manufacture: Optional[str] = None, product: Optional[str] = None,
                  serial_number: Optional[str] = None, channel_configs: Optional[dict[int, ChannelConfig]] = None,
-                 **kwargs) -> None:
+                 receive_own_messages: bool = False, **kwargs) -> None:
 
         # If ignore_config is not set, can.util.cast_from_string may cause unexpected type conversions.
         if manufacture is not None:
@@ -151,6 +151,9 @@ class CandleBus(can.bus.BusABC):
                 bit_error_reporting=cfg["bit_error_reporting"]
             )
 
+        # Receive own messages or not.
+        self._receive_own_messages = receive_own_messages
+
         super().__init__(
             channel=channel,
             can_filters=can_filters,
@@ -180,23 +183,31 @@ class CandleBus(can.bus.BusABC):
         for i, ch in self._channels.items():
             frame = ch.receive_nowait()
             if frame is not None:
-                return convert_frame(i, frame, self._hardware_timestamps[i]), False
+                if self._receive_own_messages or frame.frame_type.rx:
+                    return convert_frame(i, frame, self._hardware_timestamps[i]), False
 
-        if timeout is None:
-            timeout = 2**32 - 1
+        polling_start = time.time()
+        while True:
+            # Calculate polling time
+            if timeout is None:
+                polling_time = 1.0
+            else:
+                polling_time = timeout - (time.time() - polling_start)
 
-        # Block until a frame is available.
-        if not self._device.wait_for_frame(timeout):
-            return None, False
+            # Timeout
+            if polling_time < 0.0:
+                return None, False
 
-        # Check if there is a frame available.
-        for i, ch in self._channels.items():
-            frame = ch.receive_nowait()
-            if frame is not None:
-                return convert_frame(i, frame, self._hardware_timestamps[i]), False
+            # Block until a frame is available.
+            if not self._device.wait_for_frame(polling_time):
+                continue
 
-        # No frame available after timeout.
-        return None, False
+            # Check if there is a frame available.
+            for i, ch in self._channels.items():
+                frame = ch.receive_nowait()
+                if frame is not None:
+                    if self._receive_own_messages or frame.frame_type.rx:
+                        return convert_frame(i, frame, self._hardware_timestamps[i]), False
 
     def send(self, msg: can.Message, timeout: Optional[float] = None) -> None:
         # Parse channel.

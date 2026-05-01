@@ -51,6 +51,7 @@ You can configure the device by appending the following parameters when creating
 - one_shot: bool, defaults to False
 - bit_error_reporting: bool, defaults to False
 - termination: bool or None, defaults to None
+- receive_own_messages: bool, defaults to False
 
 For example, create a canfd device with 1M bitrate and 5M data bitrate.
 

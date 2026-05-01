@@ -27,7 +27,7 @@ class FrameCounter(can.Listener):
 def main():
     frame_counter = FrameCounter()
 
-    with can.Bus(interface='candle', channel=0, listen_only=True, loop_back=True, ignore_config=True) as bus:
+    with can.Bus(interface='candle', channel=0, listen_only=True, loop_back=True, ignore_config=True, receive_own_messages=True) as bus:
         notifier = can.Notifier(bus, [frame_counter])
 
         for i in range(200000):

@@ -31,7 +31,7 @@ def main():
 
     frame_counter = MultiChannelFrameCounter(channel_count)
 
-    with can.Bus(interface='candle', channel=[i for i in range(channel_count)], listen_only=True, loop_back=True, ignore_config=True) as bus:
+    with can.Bus(interface='candle', channel=[i for i in range(channel_count)], listen_only=True, loop_back=True, ignore_config=True, receive_own_messages=True) as bus:
         notifier = can.Notifier(bus, [frame_counter])
 
         for i in range(200000):
